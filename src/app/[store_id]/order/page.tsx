@@ -210,7 +210,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                 
                 <div className="space-y-2">
                   <Label>결제 방식</Label>
-                  <Select value={paymentMethod} onValueChange={(val) => setPaymentMethod(val)}>
+                  <Select value={paymentMethod} onValueChange={(val) => setPaymentMethod(val || "현금")}>
                     <SelectTrigger>
                       <SelectValue placeholder="결제 방식을 선택하세요" />
                     </SelectTrigger>

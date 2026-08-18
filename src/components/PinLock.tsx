@@ -23,7 +23,7 @@ export function PinLock({ storeId, role, children }: { storeId: string, role: "o
 
       const { data } = await supabase.from("stores").select(`${role}_pin`).eq("id", storeId).single();
       if (data) {
-        const storePin = data[`${role}_pin`];
+        const storePin = (data as any)[`${role}_pin`];
         if (!storePin) {
           setIsLocked(false); // No PIN set
         } else {

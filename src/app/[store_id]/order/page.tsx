@@ -139,7 +139,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
             <div key={category} className="space-y-4">
               <h2 className="text-xl font-bold bg-primary/10 p-2 rounded">{category}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {groupedMenus[category].map((menu) => (
+                {groupedMenus[category].map((menu: any) => (
                   <Card 
                     key={menu.id} 
                     className={`cursor-pointer transition-colors ${menu.is_sold_out ? 'opacity-50' : 'hover:border-primary'}`}
@@ -210,7 +210,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                 
                 <div className="space-y-2">
                   <Label>결제 방식</Label>
-                  <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <Select value={paymentMethod} onValueChange={(val) => setPaymentMethod(val)}>
                     <SelectTrigger>
                       <SelectValue placeholder="결제 방식을 선택하세요" />
                     </SelectTrigger>

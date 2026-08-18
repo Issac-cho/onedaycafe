@@ -86,5 +86,23 @@ BEGIN;
   CREATE PUBLICATION supabase_realtime;
 COMMIT;
 alter publication supabase_realtime add table public.orders;
-alter publication supabase_realtime add table public.order_items;
 alter publication supabase_realtime add table public.menus;
+
+-- Auto-increment order_number per store_id
+CREATE OR REPLACE FUNCTION set_store_order_number()
+RETURNS TRIGGER AS $$
+BEGIN
+  SELECT COALESCE(MAX(order_number), 0) + 1
+  INTO NEW.order_number
+  FROM public.orders
+  WHERE store_id = NEW.store_id;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_order_number_trigger ON public.orders;
+CREATE TRIGGER set_order_number_trigger
+BEFORE INSERT ON public.orders
+FOR EACH ROW
+EXECUTE FUNCTION set_store_order_number();

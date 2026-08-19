@@ -99,6 +99,8 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     const orderItems = cart.map((item) => ({
       order_id: orderData.id,
       menu_id: item.menu.id,
+      menu_name: item.menu.name,
+      menu_price: item.menu.price,
       quantity: item.quantity,
       status: "pending",
     }));

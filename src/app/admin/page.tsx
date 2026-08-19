@@ -13,7 +13,8 @@ import { DashboardStats } from "@/components/admin/DashboardStats";
 
 export default function AdminDashboard() {
   const [session, setSession] = useState<any>(null);
-  const [store, setStore] = useState<any>(null);
+  const [stores, setStores] = useState<any[]>([]);
+  const [activeStore, setActiveStore] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [storeName, setStoreName] = useState("");
   const router = useRouter();
@@ -26,7 +27,7 @@ export default function AdminDashboard() {
       if (!session) {
         router.push("/");
       } else {
-        fetchStore(session.user.id);
+        fetchStores(session.user.id);
       }
     });
 
@@ -42,10 +43,10 @@ export default function AdminDashboard() {
     };
   }, [router]);
 
-  const fetchStore = async (userId: string) => {
-    const { data, error } = await supabase.from("stores").select("*").eq("owner_id", userId).single();
+  const fetchStores = async (userId: string) => {
+    const { data, error } = await supabase.from("stores").select("*").eq("owner_id", userId).order("created_at", { ascending: true });
     if (data) {
-      setStore(data);
+      setStores(data);
     }
     setLoading(false);
   };
@@ -53,12 +54,20 @@ export default function AdminDashboard() {
   const createStore = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!session) return;
+    
+    // Check for duplicate store name for this user
+    if (stores.some(s => s.name === storeName)) {
+      alert("이미 같은 이름의 매장이 존재합니다.");
+      return;
+    }
+
     setLoading(true);
     const { data, error } = await supabase.from("stores").insert([{ name: storeName, owner_id: session.user.id }]).select().single();
     if (error) {
       alert("매장 생성 실패: " + error.message);
     } else {
-      setStore(data);
+      setStores([...stores, data]);
+      setStoreName("");
     }
     setLoading(false);
   };
@@ -78,29 +87,50 @@ export default function AdminDashboard() {
         <Button variant="outline" onClick={handleLogout}>로그아웃</Button>
       </div>
 
-      {!store ? (
-        <Card className="max-w-md mx-auto mt-10">
-          <CardHeader>
-            <CardTitle>새로운 일일카페 매장 개설</CardTitle>
-            <CardDescription>우선 나의 매장(팀) 이름을 등록해주세요.</CardDescription>
-          </CardHeader>
-          <form onSubmit={createStore}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="storeName">매장 이름 (예: 컴퓨터공학과 일일주점)</Label>
-                <Input id="storeName" value={storeName} onChange={(e) => setStoreName(e.target.value)} required />
+      {!activeStore ? (
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-xl font-bold mb-4">내 매장 목록</h2>
+            {stores.length === 0 ? (
+              <p className="text-gray-500 bg-gray-50 p-6 rounded-lg text-center">운영 중인 매장이 없습니다. 새 매장을 개설해보세요!</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {stores.map(store => (
+                  <Card key={store.id} className="hover:border-primary cursor-pointer transition-colors" onClick={() => setActiveStore(store)}>
+                    <CardHeader>
+                      <CardTitle>{store.name}</CardTitle>
+                      <CardDescription>클릭하여 매장 관리</CardDescription>
+                    </CardHeader>
+                  </Card>
+                ))}
               </div>
-            </CardContent>
-            <CardContent>
-              <Button type="submit" className="w-full">매장 생성하기</Button>
-            </CardContent>
-          </form>
-        </Card>
+            )}
+          </div>
+
+          <Card className="max-w-md mt-10">
+            <CardHeader>
+              <CardTitle>새로운 매장 개설</CardTitle>
+              <CardDescription>새로운 매장(팀) 이름을 등록해주세요.</CardDescription>
+            </CardHeader>
+            <form onSubmit={createStore}>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="storeName">매장 이름 (중복 불가)</Label>
+                  <Input id="storeName" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="예: 컴퓨터공학과 주점" required />
+                </div>
+              </CardContent>
+              <CardContent>
+                <Button type="submit" className="w-full">매장 생성하기</Button>
+              </CardContent>
+            </form>
+          </Card>
+        </div>
       ) : (
         <div className="space-y-8 mt-6">
           <div>
-            <h2 className="text-3xl font-extrabold mb-2">{store.name}</h2>
-            <p className="text-gray-500">매장이 성공적으로 개설되었습니다. 아래 링크를 각 담당 직원들에게 공유해주세요.</p>
+            <Button variant="ghost" onClick={() => setActiveStore(null)} className="mb-4">← 목록으로 돌아가기</Button>
+            <h2 className="text-3xl font-extrabold mb-2">{activeStore.name}</h2>
+            <p className="text-gray-500">매장 관리 화면입니다. 아래 링크를 각 담당 직원들에게 공유해주세요.</p>
           </div>
 
           <Card className="border-primary/20 shadow-md">
@@ -115,8 +145,8 @@ export default function AdminDashboard() {
                     <span className="text-2xl">📝</span> 홀 주문 담당
                   </h3>
                   <p className="text-sm text-gray-500 mb-4">손님들의 주문을 받고 결제를 처리합니다.</p>
-                  <a href={`${baseUrl}/${store.id}/order`} target="_blank" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
-                    {baseUrl}/{store.id}/order
+                  <a href={`${baseUrl}/${activeStore.id}/order`} target="_blank" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
+                    {baseUrl}/{activeStore.id}/order
                   </a>
                 </div>
                 
@@ -125,8 +155,8 @@ export default function AdminDashboard() {
                     <span className="text-2xl">👨‍🍳</span> 주방 담당
                   </h3>
                   <p className="text-sm text-gray-500 mb-4">들어온 주문을 확인하고 조리 완료 처리를 합니다.</p>
-                  <a href={`${baseUrl}/${store.id}/chef`} target="_blank" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
-                    {baseUrl}/{store.id}/chef
+                  <a href={`${baseUrl}/${activeStore.id}/chef`} target="_blank" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
+                    {baseUrl}/{activeStore.id}/chef
                   </a>
                 </div>
 
@@ -135,8 +165,8 @@ export default function AdminDashboard() {
                     <span className="text-2xl">🏃‍♂️</span> 홀 서빙 담당
                   </h3>
                   <p className="text-sm text-gray-500 mb-4">조리가 완료된 요리를 손님 테이블에 전달합니다.</p>
-                  <a href={`${baseUrl}/${store.id}/server`} target="_blank" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
-                    {baseUrl}/{store.id}/server
+                  <a href={`${baseUrl}/${activeStore.id}/server`} target="_blank" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
+                    {baseUrl}/{activeStore.id}/server
                   </a>
                 </div>
               </div>
@@ -148,7 +178,7 @@ export default function AdminDashboard() {
               <CardTitle>직원 접속 보안 (PIN)</CardTitle>
             </CardHeader>
             <CardContent>
-              <StoreSettings store={store} />
+              <StoreSettings store={activeStore} />
             </CardContent>
           </Card>
           
@@ -158,7 +188,7 @@ export default function AdminDashboard() {
               <CardDescription>판매할 메뉴를 등록하고 상태(품절/숨김)를 관리합니다.</CardDescription>
             </CardHeader>
             <CardContent>
-              <MenuManager storeId={store.id} />
+              <MenuManager storeId={activeStore.id} />
             </CardContent>
           </Card>
 
@@ -168,7 +198,7 @@ export default function AdminDashboard() {
               <CardDescription>전체 주문/조리 현황을 한눈에 파악합니다.</CardDescription>
             </CardHeader>
             <CardContent>
-              <DashboardStats storeId={store.id} />
+              <DashboardStats storeId={activeStore.id} />
             </CardContent>
           </Card>
         </div>

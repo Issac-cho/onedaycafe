@@ -42,6 +42,8 @@ CREATE TABLE public.order_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
     menu_id UUID NOT NULL REFERENCES public.menus(id) ON DELETE CASCADE,
+    menu_name TEXT,
+    menu_price INTEGER,
     quantity INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'cooked', 'served'
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -90,7 +92,9 @@ alter publication supabase_realtime add table public.menus;
 
 -- Auto-increment order_number per store_id
 CREATE OR REPLACE FUNCTION set_store_order_number()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER 
+SET search_path = public
+AS $$
 BEGIN
   SELECT COALESCE(MAX(order_number), 0) + 1
   INTO NEW.order_number

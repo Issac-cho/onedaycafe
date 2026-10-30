@@ -88,3 +88,4 @@ UPDATE public.menus SET is_sold_out = false;
 -- 기존 주문이 있는 DB에 적용용 SQL을 재실행해도 데이터가 보존되어야 한다.
 \ir ../migrations/20261030_soft_delete_menus.sql
 \ir soft-delete-menus.sql
+\ir dashboard-totals.sql

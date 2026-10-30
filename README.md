@@ -103,5 +103,12 @@ PostgreSQL이 설치된 Windows에서는 `./tests/test-atomic-orders.ps1`로 격
 주문 이력이 있는 메뉴의 물리 삭제도 DB에서 차단합니다. 이미 삭제된 과거 내역을 복구하는 작업은 포함하지 않습니다.
 SQL 적용 후 앱을 배포하고 직원 화면을 새로고침하세요.
 
+### 기존 DB에 전체 통계 집계 적용
+
+수량별 조리·서빙 SQL 적용 후 `migrations/20261030_dashboard_totals.sql`을 실행하세요.
+통계는 DB에서 전체 데이터를 집계하며 CSV는 500행씩 조회해 1,000행이 넘어도 모두 내려받습니다.
+다운로드 버튼 옆 ⓘ를 누르면 안내를 볼 수 있습니다. 정확한 정산을 위해 주문·조리·서빙 작업을 중지한 뒤 다운로드하세요.
+다운로드 시점의 스냅샷은 별도로 만들지 않습니다.
+
 ## 📄 License
 This project is licensed under the MIT License.

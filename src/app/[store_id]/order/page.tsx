@@ -8,9 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { readPendingOrder, savePendingOrder, clearPendingOrder, orderRpcArgs, isRejectedOrder, type PendingOrder } from "@/lib/orderSubmission";
+import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { PinLock } from "@/components/PinLock";
 
-type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean };
+type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean; is_deleted: boolean };
 
 export default function OrderPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
@@ -19,6 +20,10 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   const [tableNumber, setTableNumber] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("현금");
   const [loading, setLoading] = useState(true);
+  const [menuError, setMenuError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const refreshMenusRef = useRef<() => void>(() => {});
   const [submitting, setSubmitting] = useState(false);
 
   const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
@@ -43,25 +48,92 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   }, [store_id]);
 
   useEffect(() => {
+    let active = true;
+    let running = false;
+    let queued = false;
+    let controller: AbortController | undefined;
     const fetchMenus = async () => {
-      const { data } = await supabase
-        .from("menus")
-        .select("*")
-        .eq("store_id", store_id)
-        .eq("is_hidden", false)
-        .eq("is_deleted", false)
-        .order("category")
-        .order("name");
-
-      if (data) setMenus(data);
-      setLoading(false);
+      if (!active) return;
+      if (running) { queued = true; return; }
+      running = true;
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller?.abort(), 10000);
+      try {
+        const fetched: Menu[] = [];
+        for (let offset = 0; ; offset += 500) {
+          const { data, error } = await supabase.from("menus").select("*")
+            .eq("store_id", store_id).order("category").order("name").order("id")
+            .range(offset, offset + 499).abortSignal(controller.signal);
+          if (error) throw error;
+          fetched.push(...(data ?? []));
+          if (!data || data.length < 500) break;
+        }
+        if (active) {
+          setMenus(fetched);
+          setMenuError(null);
+          setLastUpdated(new Date());
+        }
+      } catch (error) {
+        if (active) {
+          console.error("메뉴 갱신 실패", error);
+          setMenuError("메뉴 상태를 확인하지 못했습니다. 연결을 확인해 주세요. 자동으로 다시 시도합니다.");
+        }
+      } finally {
+        clearTimeout(timeout);
+        running = false;
+        if (active) {
+          setLoading(false);
+          if (queued) { queued = false; void fetchMenus(); }
+        }
+      }
     };
-
-    fetchMenus();
+    const refreshVisible = () => {
+      if (document.visibilityState === "visible") void fetchMenus();
+    };
+    const offline = () => {
+      setConnected(false);
+      setMenuError("인터넷 연결이 끊겼습니다. 연결 복구 후 메뉴 상태를 다시 확인합니다.");
+    };
+    refreshMenusRef.current = () => { void fetchMenus(); };
+    const channel = supabase.channel(`menus:order:${store_id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "menus", filter: `store_id=eq.${store_id}` }, () => { void fetchMenus(); })
+      .subscribe((status, error) => {
+        if (!active) return;
+        setConnected(status === "SUBSCRIBED");
+        if (status === "SUBSCRIBED") void fetchMenus();
+        if (error) console.error("메뉴 Realtime 연결 실패", status, error);
+      });
+    void fetchMenus();
+    const interval = setInterval(refreshVisible, 5000);
+    window.addEventListener("online", refreshVisible);
+    window.addEventListener("offline", offline);
+    window.addEventListener("focus", refreshVisible);
+    document.addEventListener("visibilitychange", refreshVisible);
+    return () => {
+      active = false;
+      controller?.abort();
+      clearInterval(interval);
+      refreshMenusRef.current = () => {};
+      window.removeEventListener("online", refreshVisible);
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("focus", refreshVisible);
+      document.removeEventListener("visibilitychange", refreshVisible);
+      void supabase.removeChannel(channel);
+    };
   }, [store_id]);
 
+  const currentMenus = new Map(menus.map(menu => [menu.id, menu]));
+  const cartIssue = (menu: Menu) => {
+    const current = currentMenus.get(menu.id);
+    if (!current || current.is_hidden || current.is_deleted) return "판매 중단";
+    if (current.is_sold_out) return "품절";
+    if (current.price !== menu.price) return "가격 변경";
+    return null;
+  };
+  const hasCartIssue = cart.some(item => cartIssue(item.menu));
+
   const addToCart = (menu: Menu) => {
-    if (menu.is_sold_out || pendingOrder || submitting || restoring || storageError) return;
+    if (!currentMenus.has(menu.id) || cartIssue(menu) || menuError || pendingOrder || submitting || restoring || storageError) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.menu.id === menu.id);
       if (existing) {
@@ -105,6 +177,10 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
 
   const submitOrder = async () => {
     if (submittingRef.current || restoring || storageError) return;
+    if (!pendingOrder && (menuError || hasCartIssue)) {
+      alert(menuError || "판매 불가 메뉴 또는 변경된 가격을 확인해 주세요.");
+      return;
+    }
     submittingRef.current = true;
     setSubmitting(true);
     try {
@@ -123,6 +199,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         if (isRejectedOrder(error.code)) {
           clearPendingOrder(sessionStorage, store_id);
           setPendingOrder(null);
+          refreshMenusRef.current();
           alert("주문이 접수되지 않았습니다: " + error.message + "\n메뉴를 다시 확인해 주세요.");
         } else {
           alert("접수 결과를 확인하지 못했습니다. ‘접수 확인 / 재시도’를 눌러주세요. 같은 요청은 중복 접수되지 않습니다.");
@@ -145,7 +222,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   };
 
   // Group menus by category
-  const groupedMenus = menus.reduce((acc, menu) => {
+  const groupedMenus = menus.filter(menu => !menu.is_hidden && !menu.is_deleted).reduce((acc, menu) => {
     if (!acc[menu.category]) acc[menu.category] = [];
     acc[menu.category].push(menu);
     return acc;
@@ -156,6 +233,8 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   return (
     <PinLock storeId={store_id} role="order">
       <div className="container mx-auto p-4 max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="md:col-span-3"><QueueConnectionStatus connected={connected} error={menuError} lastUpdated={lastUpdated} refresh={() => refreshMenusRef.current()} /></div>
+      {menuError && <p className="md:col-span-3 text-sm text-red-700" role="alert">{menuError} 새 주문은 상태 확인 후 접수할 수 있습니다.</p>}
       {storageError && <p className="md:col-span-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700" role="alert">{storageError}</p>}
       {pendingOrder && (
         <div className="md:col-span-3 rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-2" role="status">
@@ -212,19 +291,26 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
               {cart.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">장바구니가 비어있습니다.</p>
               ) : (
-                cart.map((item) => (
+                cart.map((item) => {
+                  const issue = cartIssue(item.menu);
+                  const current = currentMenus.get(item.menu.id);
+                  return (
                   <div key={item.menu.id} className="flex justify-between items-center border-b pb-2">
                     <div>
                       <p className="font-bold">{item.menu.name}</p>
                       <p className="text-sm text-gray-500">{item.menu.price.toLocaleString()}원</p>
+                      {issue && <p className="text-xs text-red-600" role="alert">{issue}{issue === "가격 변경" && current ? `: ${current.price.toLocaleString()}원` : " · 주문 불가"}</p>}
+                      {issue === "가격 변경" && current && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.map(entry => entry.menu.id === item.menu.id ? { ...entry, menu: current } : entry))}>변경 가격 적용</Button>}
+                      {issue && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.filter(entry => entry.menu.id !== item.menu.id))}>메뉴 빼기</Button>}
                     </div>
                     <div className="flex items-center gap-2">
                       <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => removeFromCart(item.menu.id)}>-</Button>
                       <span className="w-4 text-center font-bold">{item.quantity}</span>
-                      <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => addToCart(item.menu)}>+</Button>
+                      <Button variant="outline" size="icon" className="h-6 w-6" disabled={!!issue || !!menuError} onClick={() => addToCart(item.menu)}>+</Button>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -262,7 +348,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                 <Button 
                   type="submit" 
                   className="w-full text-lg h-12" 
-                  disabled={submitting || !!pendingOrder || restoring || !!storageError || cart.length === 0}
+                  disabled={submitting || !!pendingOrder || restoring || !!storageError || !!menuError || hasCartIssue || cart.length === 0}
                 >
                   {submitting ? "주문 전송 중..." : "주문 및 결제 완료"}
                 </Button>

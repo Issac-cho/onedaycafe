@@ -26,10 +26,22 @@ const success = { data: { id: "order", order_number: 5 }, error: null };
 
 async function mount(saved = storage(), responses = [success]) {
   const hooks = [], effects = [], calls = [], alerts = [];
+  const cleanups = [];
+  const window = new EventTarget();
+  const document = new EventTarget();
+  document.visibilityState = "visible";
+  let menuResult = { data: [menu], error: null };
+  let fetches = 0;
+  let change, subscription, poll;
+  const channel = {
+    on(_type, filter, callback) { assert.equal(filter.table, "menus"); assert.equal(filter.filter, "store_id=eq.store"); change = callback; return this; },
+    subscribe(callback) { subscription = callback; return this; },
+  };
   let cursor = 0;
   const query = {
     select() { return this; }, eq() { return this; },
-    order() { return this; }, then(resolve) { resolve({ data: [menu] }); },
+    order() { return this; }, range() { return this; }, abortSignal() { return this; },
+    then(resolve) { fetches++; resolve(menuResult); },
   };
   const react = {
     use: () => ({ store_id: "store" }),
@@ -46,6 +58,7 @@ async function mount(saved = storage(), responses = [success]) {
     "@/lib/supabase": { supabase: {
       from(table) { assert.equal(table, "menus", "orders must only be written via the atomic RPC"); return query; },
       rpc(name, args) { assert.equal(name, "submit_order"); calls.push(args); return responses.shift() ?? success; },
+      channel: () => channel, removeChannel() {},
     } },
     "@/lib/orderSubmission": helpers,
     "@/components/ui/button": { Button: "button" },
@@ -54,9 +67,12 @@ async function mount(saved = storage(), responses = [success]) {
     "@/components/ui/label": { Label: "label" },
     "@/components/ui/select": Object.fromEntries(["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"].map(name => [name, name])),
     "@/components/PinLock": { PinLock: "main" },
+    "@/components/QueueConnectionStatus": { QueueConnectionStatus: "aside" },
   };
   const { default: Page } = load("../app/[store_id]/order/page.tsx", dependencies,
-    { sessionStorage: saved, crypto: { randomUUID }, alert: message => alerts.push(message), console: { error() {} } });
+    { sessionStorage: saved, crypto: { randomUUID }, alert: message => alerts.push(message), console: { error() {} },
+      window, document, AbortController, setTimeout: () => 1, clearTimeout() {},
+      setInterval(callback, delay) { assert.equal(delay, 5000); poll = callback; return 1; }, clearInterval() {} });
   function render() {
     cursor = 0;
     const tree = Page({ params: Promise.resolve({ store_id: "store" }) });
@@ -71,10 +87,18 @@ async function mount(saved = storage(), responses = [success]) {
     return nodes;
   }
   render();
-  effects.forEach(effect => effect());
+  effects.forEach(effect => cleanups.push(effect()));
   await settle();
   return {
     render, calls, alerts, saved,
+    get fetches() { return fetches; },
+    visibility: state => { document.visibilityState = state; },
+    async menuChange(menus) { menuResult = { data: menus, error: null }; change(); await settle(); },
+    async menuFailure() { menuResult = { data: null, error: { message: "offline" } }; change(); await settle(); },
+    async poll(menus) { menuResult = { data: menus, error: null }; poll(); await settle(); },
+    async reconnect(menus) { menuResult = { data: menus, error: null }; subscription("SUBSCRIBED"); await settle(); },
+    async event(name, menus) { menuResult = { data: menus, error: null }; window.dispatchEvent(new Event(name)); await settle(); },
+    cleanup: () => cleanups.forEach(cleanup => cleanup?.()),
     prepare() {
       render().find(node => node.type === "Card" && node.props.onClick).props.onClick();
       render().find(node => node.type === "input" && node.props.id === "table").props.onChange({ target: { value: "3번" } });
@@ -135,4 +159,86 @@ test("corrupted saved requests block new submissions instead of silently losing 
   const app = await mount(saved);
   assert.equal(app.render().find(node => node.type === "fieldset").props.disabled, true);
   assert.equal(app.calls.length, 0);
+});
+
+test("sold-out changes block checkout without removing the cart; restoring stock enables it again", async () => {
+  const app = await mount();
+  app.prepare();
+  await app.menuChange([{ ...menu, is_sold_out: true }]);
+  assert.equal(app.render().find(node => node.type === "button" && node.props.type === "submit").props.disabled, true);
+  assert.ok(app.render().some(node => node.props.role === "alert" && JSON.stringify(node.props.children).includes("품절")));
+  await app.submit();
+  assert.equal(app.calls.length, 0);
+  await app.menuChange([menu]);
+  await app.submit();
+  assert.equal(app.calls.length, 1);
+  assert.equal(app.calls[0].p_items[0].quantity, 1);
+  app.cleanup();
+});
+
+test("hidden and deleted menus disappear from the catalog but remain removable in the cart", async () => {
+  for (const flag of ["is_hidden", "is_deleted"]) {
+    const app = await mount();
+    app.prepare();
+    await app.menuChange([{ ...menu, [flag]: true }]);
+    assert.ok(!app.render().some(node => node.type === "Card" && node.props.onClick));
+    await app.submit();
+    assert.equal(app.calls.length, 0);
+    app.render().find(node => node.type === "button" && node.props.children === "메뉴 빼기").props.onClick();
+    assert.ok(app.render().some(node => node.props.children === "장바구니가 비어있습니다."));
+    app.cleanup();
+  }
+});
+
+test("price changes require explicit confirmation before sending the updated amount", async () => {
+  const app = await mount();
+  app.prepare();
+  await app.menuChange([{ ...menu, price: 3500 }]);
+  await app.submit();
+  assert.equal(app.calls.length, 0);
+  app.render().find(node => node.type === "button" && node.props.children === "변경 가격 적용").props.onClick();
+  await app.submit();
+  assert.equal(app.calls[0].p_items[0].unit_price, 3500);
+  app.cleanup();
+});
+
+test("failed refresh blocks new orders and recovery restores checkout", async () => {
+  const app = await mount();
+  app.prepare();
+  await app.menuFailure();
+  await app.submit();
+  assert.equal(app.calls.length, 0);
+  await app.reconnect([menu]);
+  await app.submit();
+  assert.equal(app.calls.length, 1);
+  app.cleanup();
+});
+
+test("menu refresh failures and later stock changes do not prevent confirming a previously sent request", async () => {
+  const app = await mount(storage(), [{ data: null, error: { code: "", message: "connection lost" } }, success]);
+  app.prepare();
+  await app.submit();
+  await app.menuChange([{ ...menu, is_sold_out: true }]);
+  await app.menuFailure();
+  await app.retry();
+  assert.equal(JSON.stringify(app.calls[0]), JSON.stringify(app.calls[1]));
+  assert.equal(helpers.readPendingOrder(app.saved, "store"), null);
+  app.cleanup();
+});
+
+test("subscription recovery, browser events and visible polling refresh menus and clean up on unmount", async () => {
+  const app = await mount();
+  for (const refresh of [() => app.reconnect([menu]), () => app.poll([menu]),
+    () => app.event("focus", [menu]), () => app.event("online", [menu])]) {
+    const before = app.fetches;
+    await refresh();
+    assert.equal(app.fetches, before + 1);
+  }
+  app.visibility("hidden");
+  const before = app.fetches;
+  await app.poll([menu]);
+  assert.equal(app.fetches, before);
+  app.cleanup();
+  await app.menuChange([menu]);
+  assert.equal(app.fetches, before);
 });

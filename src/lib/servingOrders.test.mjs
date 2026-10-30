@@ -97,7 +97,7 @@ test("N items require N successful clicks and the blue fill advances by 1/N", as
     const app = page([current]);
     const button = app.buttons[0];
     assert.equal(button.children[0].props.style.width, `${count / 3 * 100}%`);
-    assert.match(button.className, /border-blue-600 bg-white/);
+    assert.match(button.className, /border-blue-600/);
     await button.onClick();
     assert.equal(app.updates[0].served_quantity, count + 1);
     assert.equal(app.updates[0].status, count === 2 ? "served" : "cooked");

@@ -123,14 +123,14 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                           <Button
                             size="sm"
                             variant={cooked || served ? "outline" : "secondary"}
-                            className={`relative isolate shrink-0 overflow-hidden min-w-28 ${cooked || served ? "border-blue-600 bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100" : ""}`}
+                            className={`relative isolate shrink-0 overflow-hidden min-w-28 ${cooked || served ? `bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100 ${fullyServed ? "border-blue-200" : "border-blue-600"}` : ""}`}
                             disabled={!readyToServe || fullyServed || busyIds.has(item.id) || !!queue.error}
                             onClick={() => markAsServed(item.id, servedQuantity, item.quantity, item.cooked_quantity)}
                             aria-label={`${item.menu.name} ${label}, ${item.quantity}개 중 ${servedQuantity}개 서빙 완료`}
                           >
-                            {(cooked || served) && <span aria-hidden="true" className="absolute inset-y-0 left-0 -z-10 bg-blue-600 transition-[width] duration-200" style={{ width: `${servedQuantity / item.quantity * 100}%` }} />}
+                            {(cooked || served) && <span aria-hidden="true" className={`absolute inset-y-0 left-0 -z-10 transition-[width] duration-200 ${fullyServed ? "bg-blue-100" : "bg-blue-600"}`} style={{ width: `${servedQuantity / item.quantity * 100}%` }} />}
                             <span>{label}</span>
-                            {(cooked || served) && <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center text-white" style={{ clipPath: `inset(0 ${100 - servedQuantity / item.quantity * 100}% 0 0)` }}>{label}</span>}
+                            {(cooked || served) && <span aria-hidden="true" className={`pointer-events-none absolute inset-0 flex items-center justify-center ${fullyServed ? "text-blue-700" : "text-white"}`} style={{ clipPath: `inset(0 ${100 - servedQuantity / item.quantity * 100}% 0 0)` }}>{label}</span>}
                           </Button>
                         </div>
                       );

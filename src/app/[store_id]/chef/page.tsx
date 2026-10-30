@@ -77,6 +77,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {pendingItems.map((item) => {
             const cookedQuantity = Math.min(item.quantity, Math.max(item.cooked_quantity, cookedCounts[item.id] ?? 0));
+            const fullyCooked = cookedQuantity === item.quantity;
             const label = busyIds.has(item.id) ? "처리 중" : cookedQuantity === item.quantity ? "조리 완료됨" : `조리 완료 ${cookedQuantity}/${item.quantity}`;
             const progress = cookedQuantity / item.quantity * 100;
             return (
@@ -96,14 +97,14 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
                   <Button
                     size="lg"
                     variant="outline"
-                    className="relative isolate shrink-0 overflow-hidden border-blue-600 bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100 h-16 min-w-32 text-base font-bold ml-3"
+                    className={`relative isolate shrink-0 overflow-hidden bg-white text-orange-700 hover:bg-white hover:text-orange-700 disabled:opacity-100 h-16 min-w-32 text-base font-bold ml-3 ${fullyCooked ? "border-orange-200" : "border-orange-600"}`}
                     disabled={busyIds.has(item.id) || cookedQuantity === item.quantity || !!queue.error}
                     onClick={() => markAsCooked(item.id, cookedQuantity, item.quantity)}
                     aria-label={`${item.menu.name} ${label}, ${item.quantity}개 중 ${cookedQuantity}개 조리 완료`}
                   >
-                    <span aria-hidden="true" className="absolute inset-y-0 left-0 -z-10 bg-blue-600 transition-[width] duration-200" style={{ width: `${progress}%` }} />
+                    <span aria-hidden="true" className={`absolute inset-y-0 left-0 -z-10 transition-[width] duration-200 ${fullyCooked ? "bg-orange-100" : "bg-orange-600"}`} style={{ width: `${progress}%` }} />
                     <span>{label}</span>
-                    <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center text-white" style={{ clipPath: `inset(0 ${100 - progress}% 0 0)` }}>{label}</span>
+                    <span aria-hidden="true" className={`pointer-events-none absolute inset-0 flex items-center justify-center ${fullyCooked ? "text-orange-700" : "text-white"}`} style={{ clipPath: `inset(0 ${100 - progress}% 0 0)` }}>{label}</span>
                   </Button>
                 </CardContent>
               </Card>

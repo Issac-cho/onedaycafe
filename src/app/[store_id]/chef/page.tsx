@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useOrderQueue } from "@/lib/useOrderQueue";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
+import { useConfirmation } from "@/components/useConfirmation";
 import { PinLock } from "@/components/PinLock";
 
 export default function ChefPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
+  const { confirm, confirmationDialog } = useConfirmation();
   const [kitchenGroup, setKitchenGroup] = useState("1");
   const queue = useOrderQueue(store_id, "pending", kitchenGroup);
   const { items: pendingItems, loading } = queue;
@@ -99,7 +101,22 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
                     variant="outline"
                     className={`relative isolate shrink-0 overflow-hidden bg-white text-orange-700 hover:bg-white hover:text-orange-700 disabled:opacity-100 h-16 min-w-32 text-base font-bold ml-3 ${fullyCooked ? "border-orange-200" : "border-orange-600"}`}
                     disabled={busyIds.has(item.id) || cookedQuantity === item.quantity || !!queue.error}
-                    onClick={() => markAsCooked(item.id, cookedQuantity, item.quantity)}
+                    onClick={async () => {
+                      if (cookedQuantity + 1 === item.quantity) {
+                        const accepted = await confirm({
+                          title: "조리 최종 완료 확인",
+                          description: "마지막 1개까지 조리를 마쳤는지 확인해 주세요.",
+                          details: [
+                            `주문번호 ${item.order.order_number}번 · 테이블 ${item.order.table_number}`,
+                            `${item.menu.name} · ${item.menu.kitchen_group}구역`,
+                            `조리 완료 ${cookedQuantity}/${item.quantity} → ${item.quantity}/${item.quantity}`,
+                          ],
+                          confirmLabel: `${item.menu.name} ${item.quantity}개 조리 완료`,
+                        });
+                        if (!accepted) return;
+                      }
+                      await markAsCooked(item.id, cookedQuantity, item.quantity);
+                    }}
                     aria-label={`${item.menu.name} ${label}, ${item.quantity}개 중 ${cookedQuantity}개 조리 완료`}
                   >
                     <span aria-hidden="true" className={`absolute inset-y-0 left-0 -z-10 transition-[width] duration-200 ${fullyCooked ? "bg-orange-100" : "bg-orange-600"}`} style={{ width: `${progress}%` }} />
@@ -113,6 +130,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
         </div>
       )}
     </div>
+    {confirmationDialog}
     </PinLock>
   );
 }

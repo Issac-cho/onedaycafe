@@ -24,9 +24,10 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 const menu = { id: "menu", name: "커피", price: 3000, category: "음료", kitchen_group: 1, is_sold_out: false };
 const success = { data: { id: "order", order_number: 5 }, error: null };
 
-async function mount(saved = storage(), responses = [success]) {
+async function mount(saved = storage(), responses = [success], accepted = true) {
   const hooks = [], effects = [], calls = [], alerts = [];
   const cleanups = [];
+  const confirmations = [];
   const window = new EventTarget();
   const document = new EventTarget();
   document.visibilityState = "visible";
@@ -68,6 +69,7 @@ async function mount(saved = storage(), responses = [success]) {
     "@/components/ui/select": Object.fromEntries(["Select", "SelectContent", "SelectItem", "SelectTrigger", "SelectValue"].map(name => [name, name])),
     "@/components/PinLock": { PinLock: "main" },
     "@/components/QueueConnectionStatus": { QueueConnectionStatus: "aside" },
+    "@/components/useConfirmation": { useConfirmation: () => ({ confirm: async message => { confirmations.push(message); return accepted; }, confirmationDialog: null }) },
   };
   const { default: Page } = load("../app/[store_id]/order/page.tsx", dependencies,
     { sessionStorage: saved, crypto: { randomUUID }, alert: message => alerts.push(message), console: { error() {} },
@@ -90,7 +92,7 @@ async function mount(saved = storage(), responses = [success]) {
   effects.forEach(effect => cleanups.push(effect()));
   await settle();
   return {
-    render, calls, alerts, saved,
+    render, calls, alerts, saved, confirmations,
     get fetches() { return fetches; },
     visibility: state => { document.visibilityState = state; },
     async menuChange(menus) { menuResult = { data: menus, error: null }; change(); await settle(); },
@@ -116,6 +118,19 @@ test("successful order uses one RPC and clears the saved pending request", async
   assert.equal(app.calls[0].p_items[0].quantity, 1);
   assert.equal(helpers.readPendingOrder(app.saved, "store"), null);
   assert.ok(app.alerts[0].includes("5번"));
+  assert.equal(app.confirmations.length, 1);
+  assert.ok(app.confirmations[0].details.includes("커피 × 1 · 3,000원"));
+  assert.equal(app.confirmations[0].confirmLabel, "3번 테이블 주문 전송");
+});
+
+test("cancelling the order confirmation sends nothing and preserves the cart", async () => {
+  const app = await mount(storage(), [success], false);
+  app.prepare();
+  await app.submit();
+  assert.equal(app.calls.length, 0);
+  assert.equal(helpers.readPendingOrder(app.saved, "store"), null);
+  assert.ok(app.render().some(node => node.type === "button" && node.props.children === "+"));
+  app.cleanup();
 });
 
 test("uncertain response survives reload and retries with identical ID and payload", async () => {

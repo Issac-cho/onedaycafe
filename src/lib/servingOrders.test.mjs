@@ -29,10 +29,11 @@ test("groups by order ID, retains pending and served rows, and only enables comp
   assert.equal(groupServingOrders([]).length, 0);
 });
 
-function page(items, remaining = 0, conflict = false, role = "server") {
+function page(items, remaining = 0, conflict = false, role = "server", accepted = true) {
   const updates = [];
   const alerts = [];
   const filters = [];
+  const confirmations = [];
   let refreshes = 0;
   const query = {
     update(value) { updates.push(value); return this; },
@@ -54,6 +55,7 @@ function page(items, remaining = 0, conflict = false, role = "server") {
     "@/components/ui/card": { Card: "section", CardContent: "article" },
     "@/components/QueueConnectionStatus": { QueueConnectionStatus: "aside" },
     "@/components/PinLock": { PinLock: "main" },
+    "@/components/useConfirmation": { useConfirmation: () => ({ confirm: async message => { confirmations.push(message); return accepted; }, confirmationDialog: null }) },
   }, { alert: message => alerts.push(message), console });
   const tree = Page({ params: Promise.resolve({ store_id: "store" }) });
   function buttons(node) {
@@ -61,7 +63,7 @@ function page(items, remaining = 0, conflict = false, role = "server") {
     if (!node?.props) return [];
     return [...(node.type === "button" ? [node.props] : []), ...buttons(node.props.children)];
   }
-  return { buttons: buttons(tree), updates, filters, alerts, get refreshes() { return refreshes; } };
+  return { buttons: buttons(tree), updates, filters, alerts, confirmations, get refreshes() { return refreshes; } };
 }
 
 test("pending rows are dimmed with disabled cooking buttons; served rows remain visible", () => {
@@ -99,6 +101,7 @@ test("N items require N successful clicks and the blue fill advances by 1/N", as
     assert.equal(button.children[0].props.style.width, `${count / 3 * 100}%`);
     assert.match(button.className, /border-blue-600/);
     await button.onClick();
+    assert.equal(app.confirmations.length, count === 2 ? 1 : 0);
     assert.equal(app.updates[0].served_quantity, count + 1);
     assert.equal(app.updates[0].status, count === 2 ? "served" : "cooked");
     assert.ok(app.filters.some(([key, value]) => key === "served_quantity" && value === count));
@@ -139,6 +142,7 @@ test("kitchen requires N clicks, fills by 1/N, and changes status only after the
     assert.equal(app.buttons[0].children[0].props.style.width, `${count / 3 * 100}%`);
     assert.equal(app.buttons[0].disabled, false);
     await app.buttons[0].onClick();
+    assert.equal(app.confirmations.length, count === 2 ? 1 : 0);
     assert.equal(app.updates[0].cooked_quantity, count + 1);
     assert.equal(app.updates[0].status, count === 2 ? "cooked" : "pending");
     assert.ok(app.filters.some(([key, value]) => key === "cooked_quantity" && value === count));
@@ -168,4 +172,17 @@ test("partly cooked menus can be served without removing the remaining kitchen w
   assert.equal(waiting.buttons[0].disabled, true);
   assert.match(waiting.buttons[0]["aria-label"], /조리 중/);
   assert.equal(waiting.buttons[1].disabled, true);
+});
+
+test("cancelling either final confirmation leaves quantities unchanged", async () => {
+  for (const role of ["chef", "server"]) {
+    const current = { ...item("커피", "one", role === "chef" ? "pending" : "cooked"), quantity: 1,
+      cooked_quantity: role === "chef" ? 0 : 1 };
+    const app = page([current], 0, false, role, false);
+    await app.buttons[0].onClick();
+    assert.equal(app.confirmations.length, 1);
+    assert.equal(app.updates.length, 0);
+    assert.equal(app.refreshes, 0);
+    assert.ok(app.confirmations[0].details.some(detail => detail.includes("0/1 → 1/1")));
+  }
 });

@@ -7,10 +7,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useOrderQueue } from "@/lib/useOrderQueue";
 import { groupServingOrders } from "@/lib/servingOrders";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
+import { useConfirmation } from "@/components/useConfirmation";
 import { PinLock } from "@/components/PinLock";
 
 export default function ServerPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
+  const { confirm, confirmationDialog } = useConfirmation();
   const queue = useOrderQueue(store_id, "serving");
   const orders = groupServingOrders(queue.items);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -125,7 +127,22 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                             variant={cooked || served ? "outline" : "secondary"}
                             className={`relative isolate shrink-0 overflow-hidden min-w-28 ${cooked || served ? `bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100 ${fullyServed ? "border-blue-200" : "border-blue-600"}` : ""}`}
                             disabled={!readyToServe || fullyServed || busyIds.has(item.id) || !!queue.error}
-                            onClick={() => markAsServed(item.id, servedQuantity, item.quantity, item.cooked_quantity)}
+                            onClick={async () => {
+                      if (servedQuantity + 1 === item.quantity) {
+                        const accepted = await confirm({
+                          title: "서빙 최종 완료 확인",
+                          description: "마지막 1개까지 서빙을 마쳤는지 확인해 주세요.",
+                          details: [
+                            `주문번호 ${item.order.order_number}번 · 테이블 ${item.order.table_number}`,
+                            `${item.menu.name} · ${item.menu.kitchen_group}구역`,
+                            `서빙 완료 ${servedQuantity}/${item.quantity} → ${item.quantity}/${item.quantity}`,
+                          ],
+                          confirmLabel: `${item.menu.name} ${item.quantity}개 서빙 완료`,
+                        });
+                        if (!accepted) return;
+                      }
+                      await markAsServed(item.id, servedQuantity, item.quantity, item.cooked_quantity);
+                    }}
                             aria-label={`${item.menu.name} ${label}, ${item.quantity}개 중 ${servedQuantity}개 서빙 완료`}
                           >
                             {(cooked || served) && <span aria-hidden="true" className={`absolute inset-y-0 left-0 -z-10 transition-[width] duration-200 ${fullyServed ? "bg-blue-100" : "bg-blue-600"}`} style={{ width: `${servedQuantity / item.quantity * 100}%` }} />}
@@ -154,6 +171,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
           </div>
         )}
       </div>
+    {confirmationDialog}
     </PinLock>
   );
 }

@@ -9,12 +9,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { readPendingOrder, savePendingOrder, clearPendingOrder, orderRpcArgs, isRejectedOrder, type PendingOrder } from "@/lib/orderSubmission";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
+import { useConfirmation } from "@/components/useConfirmation";
 import { PinLock } from "@/components/PinLock";
 
 type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean; is_deleted: boolean };
 
 export default function OrderPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
+  const { confirm, confirmationDialog } = useConfirmation();
   const [menus, setMenus] = useState<Menu[]>([]);
   const [cart, setCart] = useState<{ menu: Menu; quantity: number }[]>([]);
   const [tableNumber, setTableNumber] = useState("");
@@ -172,7 +174,18 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     }
 
     if (restoring || storageError) return;
-    await submitOrder();
+    if (submittingRef.current || menuError || hasCartIssue) return;
+    const accepted = await confirm({
+      title: "주문 내용 확인",
+      description: "테이블·메뉴·수량·총 결제금액을 확인해 주세요.",
+      details: [
+        `테이블: ${tableNumber.trim()} · 결제: ${paymentMethod}`,
+        ...cart.map(item => `${item.menu.name} × ${item.quantity} · ${(item.menu.price * item.quantity).toLocaleString()}원`),
+        `총 결제금액: ${totalPrice.toLocaleString()}원`,
+      ],
+      confirmLabel: `${tableNumber.trim()} 테이블 주문 전송`,
+    });
+    if (accepted) await submitOrder();
   };
 
   const submitOrder = async () => {
@@ -359,6 +372,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       </div>
       </fieldset>
     </div>
+    {confirmationDialog}
     </PinLock>
   );
 }

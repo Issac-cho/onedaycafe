@@ -1,49 +1,17 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { use } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useOrderQueue } from "@/lib/useOrderQueue";
+import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { PinLock } from "@/components/PinLock";
 
 export default function ServerPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
-  const [cookedItems, setCookedItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchCookedItems = async () => {
-    const { data, error } = await supabase
-      .from("order_items")
-      .select(`
-        id, quantity, status, created_at,
-        menu:menus!inner(id, name, kitchen_group, store_id),
-        order:orders!inner(id, table_number, order_number)
-      `)
-      .eq("status", "cooked")
-      .eq("menu.store_id", store_id)
-      .order("created_at", { ascending: true });
-
-    if (data) {
-      setCookedItems(data);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchCookedItems();
-
-    // Set up real-time subscription
-    const channel = supabase
-      .channel('public:order_items_server')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
-        fetchCookedItems(); // Re-fetch on any change
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [store_id]);
+  const queue = useOrderQueue(store_id, "cooked");
+  const { items: cookedItems, loading } = queue;
 
   const markAsServed = async (itemId: string) => {
     const { error } = await supabase
@@ -54,7 +22,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
     if (error) {
       alert("처리 실패: " + error.message);
     }
-    fetchCookedItems();
+    queue.refresh();
   };
 
   return (
@@ -65,12 +33,16 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
           🏃‍♂️ 홀 서빙 대기열
         </h1>
         <p className="text-blue-200 text-sm mt-1">
-          주방에서 조리가 완료된 요리들입니다. 손님 테이블로 전달 후 '서빙 완료'를 눌러주세요.
+          주방에서 조리가 완료된 요리들입니다. 손님 테이블로 전달 후 ‘서빙 완료’를 눌러주세요.
         </p>
       </div>
 
+      <QueueConnectionStatus {...queue} />
+
       {loading ? (
         <div className="text-center py-10">목록을 불러오는 중...</div>
+      ) : queue.error && cookedItems.length === 0 ? (
+        <p className="text-center py-10 text-red-700" role="alert">주문 목록을 확인할 수 없습니다. 다시 조회해 주세요.</p>
       ) : cookedItems.length === 0 ? (
         <div className="text-center py-20 text-gray-500 border-2 border-dashed rounded-xl">
           <p className="text-xl">현재 서빙 대기 중인 요리가 없습니다! 👏</p>

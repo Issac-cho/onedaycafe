@@ -1,55 +1,20 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useState, use } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useOrderQueue } from "@/lib/useOrderQueue";
+import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { PinLock } from "@/components/PinLock";
 
 export default function ChefPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
   const [kitchenGroup, setKitchenGroup] = useState("1");
-  const [pendingItems, setPendingItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchPendingItems = async () => {
-    const { data, error } = await supabase
-      .from("order_items")
-      .select(`
-        id, quantity, status, created_at,
-        menu:menus!inner(id, name, kitchen_group, store_id),
-        order:orders!inner(id, table_number, order_number)
-      `)
-      .eq("status", "pending")
-      .eq("menu.store_id", store_id)
-      .order("created_at", { ascending: true });
-
-    if (data) {
-      const filtered = data.filter((item: any) => item.menu.kitchen_group.toString() === kitchenGroup);
-      setPendingItems(filtered);
-    }
-    setLoading(false);
-  };
-/* ... skip to render ... */
-/* wait, replace_file_content needs contiguous lines. Let's do them in two steps */
-
-  useEffect(() => {
-    fetchPendingItems();
-
-    // Set up real-time subscription
-    const channel = supabase
-      .channel('public:order_items')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
-        fetchPendingItems(); // Re-fetch on any change
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [store_id, kitchenGroup]);
+  const queue = useOrderQueue(store_id, "pending", kitchenGroup);
+  const { items: pendingItems, loading } = queue;
 
   const markAsCooked = async (itemId: string) => {
     const { error } = await supabase
@@ -60,8 +25,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
     if (error) {
       alert("처리 실패: " + error.message);
     }
-    // Optimistic UI update or wait for real-time
-    fetchPendingItems();
+    queue.refresh();
   };
 
   return (
@@ -83,8 +47,12 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
         </div>
       </div>
 
+      <QueueConnectionStatus {...queue} />
+
       {loading ? (
         <div className="text-center py-10">주문 목록을 불러오는 중...</div>
+      ) : queue.error && pendingItems.length === 0 ? (
+        <p className="text-center py-10 text-red-700" role="alert">주문 목록을 확인할 수 없습니다. 다시 조회해 주세요.</p>
       ) : pendingItems.length === 0 ? (
         <div className="text-center py-20 text-gray-500 border-2 border-dashed rounded-xl">
           <p className="text-xl">현재 대기 중인 주문이 없습니다! 휴식하세요 ☕</p>

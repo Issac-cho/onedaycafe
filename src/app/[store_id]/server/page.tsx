@@ -25,15 +25,15 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
     });
   };
 
-  const markAsServed = async (itemId: string, servedQuantity: number, quantity: number) => {
+  const markAsServed = async (itemId: string, servedQuantity: number, quantity: number, cookedQuantity: number) => {
     setBusy(itemId, true);
     try {
       const { data, error } = await supabase.from("order_items")
         .update({
           served_quantity: servedQuantity + 1,
-          status: servedQuantity + 1 === quantity ? "served" : "cooked",
+          status: servedQuantity + 1 === quantity ? "served" : cookedQuantity === quantity ? "cooked" : "pending",
         })
-        .eq("id", itemId).eq("status", "cooked").eq("served_quantity", servedQuantity)
+        .eq("id", itemId).eq("cooked_quantity", cookedQuantity).eq("served_quantity", servedQuantity)
         .select("id, served_quantity");
       if (error) throw error;
       if (!data?.length) {
@@ -105,16 +105,17 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                   </div>
                   <div className="divide-y">
                     {items.map(item => {
-                      const cooked = item.status === "cooked";
+                      const cooked = item.cooked_quantity > 0;
                       const served = item.status === "served";
                       const servedQuantity = Math.min(item.quantity, Math.max(
                         served ? item.quantity : item.served_quantity,
                         servedCounts[item.id] ?? 0,
                       ));
                       const fullyServed = servedQuantity === item.quantity;
-                      const label = busyIds.has(item.id) ? "처리 중" : fullyServed ? "서빙 완료됨" : cooked ? `서빙 완료 ${servedQuantity}/${item.quantity}` : "조리 중";
+                      const readyToServe = item.cooked_quantity > servedQuantity;
+                      const label = busyIds.has(item.id) ? "처리 중" : fullyServed ? "서빙 완료됨" : readyToServe ? `서빙 완료 ${servedQuantity}/${item.quantity}` : "조리 중";
                       return (
-                        <div key={item.id} className={`flex items-center gap-2 py-3 ${!cooked && !served ? "opacity-50" : ""}`}>
+                        <div key={item.id} className={`flex items-center gap-2 py-3 ${!readyToServe && !fullyServed ? "opacity-50" : ""}`}>
                           <span className={`min-w-0 flex-1 font-semibold break-words ${served ? "text-gray-500" : ""}`}>
                             {item.menu.name} <span className="text-sm font-normal">× {item.quantity}</span>
                           </span>
@@ -123,8 +124,8 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                             size="sm"
                             variant={cooked || served ? "outline" : "secondary"}
                             className={`relative isolate shrink-0 overflow-hidden min-w-28 ${cooked || served ? "border-blue-600 bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100" : ""}`}
-                            disabled={!cooked || fullyServed || busyIds.has(item.id) || !!queue.error}
-                            onClick={() => markAsServed(item.id, servedQuantity, item.quantity)}
+                            disabled={!readyToServe || fullyServed || busyIds.has(item.id) || !!queue.error}
+                            onClick={() => markAsServed(item.id, servedQuantity, item.quantity, item.cooked_quantity)}
                             aria-label={`${item.menu.name} ${label}, ${item.quantity}개 중 ${servedQuantity}개 서빙 완료`}
                           >
                             {(cooked || served) && <span aria-hidden="true" className="absolute inset-y-0 left-0 -z-10 bg-blue-600 transition-[width] duration-200" style={{ width: `${servedQuantity / item.quantity * 100}%` }} />}

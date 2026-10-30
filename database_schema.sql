@@ -47,6 +47,8 @@ CREATE TABLE public.order_items (
     quantity INTEGER NOT NULL,
     served_quantity INTEGER NOT NULL DEFAULT 0
       CHECK (served_quantity >= 0 AND served_quantity <= quantity),
+    cooked_quantity INTEGER NOT NULL DEFAULT 0
+      CHECK (served_quantity <= cooked_quantity AND cooked_quantity <= quantity),
     status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'cooked', 'served'
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

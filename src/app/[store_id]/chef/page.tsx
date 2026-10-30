@@ -15,17 +15,33 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
   const [kitchenGroup, setKitchenGroup] = useState("1");
   const queue = useOrderQueue(store_id, "pending", kitchenGroup);
   const { items: pendingItems, loading } = queue;
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [cookedCounts, setCookedCounts] = useState<Record<string, number>>({});
 
-  const markAsCooked = async (itemId: string) => {
-    const { error } = await supabase
-      .from("order_items")
-      .update({ status: "cooked" })
-      .eq("id", itemId);
-
-    if (error) {
-      alert("처리 실패: " + error.message);
+  const markAsCooked = async (itemId: string, cookedQuantity: number, quantity: number) => {
+    setBusyIds(previous => new Set(previous).add(itemId));
+    try {
+      const { data, error } = await supabase.from("order_items")
+        .update({ cooked_quantity: cookedQuantity + 1, status: cookedQuantity + 1 === quantity ? "cooked" : "pending" })
+        .eq("id", itemId).eq("status", "pending").eq("cooked_quantity", cookedQuantity)
+        .select("id, cooked_quantity");
+      if (error) throw error;
+      if (!data?.length) {
+        alert("다른 직원이 먼저 처리했거나 상태가 변경되었습니다. 목록을 확인한 뒤 다시 눌러주세요.");
+      } else {
+        setCookedCounts(previous => ({ ...previous, [itemId]: data[0].cooked_quantity }));
+      }
+    } catch (error) {
+      console.error("조리 완료 처리 실패", error);
+      alert("조리 완료 처리에 실패했습니다. 연결을 확인하고 다시 시도해 주세요.");
+    } finally {
+      setBusyIds(previous => {
+        const next = new Set(previous);
+        next.delete(itemId);
+        return next;
+      });
+      queue.refresh();
     }
-    queue.refresh();
   };
 
   return (
@@ -59,30 +75,40 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {pendingItems.map((item) => (
-            <Card key={item.id} className="border-l-4 border-l-yellow-500 shadow-sm animate-in fade-in zoom-in duration-300">
-              <CardContent className="p-4 flex justify-between items-center">
-                <div>
-                  <div className="text-sm font-bold text-yellow-600 mb-1">
-                    [주문번호: {item.order.order_number}번] 테이블: {item.order.table_number}
+          {pendingItems.map((item) => {
+            const cookedQuantity = Math.min(item.quantity, Math.max(item.cooked_quantity, cookedCounts[item.id] ?? 0));
+            const label = busyIds.has(item.id) ? "처리 중" : cookedQuantity === item.quantity ? "조리 완료됨" : `조리 완료 ${cookedQuantity}/${item.quantity}`;
+            const progress = cookedQuantity / item.quantity * 100;
+            return (
+              <Card key={item.id} className="border-l-4 border-l-yellow-500 shadow-sm animate-in fade-in zoom-in duration-300">
+                <CardContent className="p-4 flex justify-between items-center">
+                  <div className="min-w-0 flex-1 break-words">
+                    <div className="text-sm font-bold text-yellow-600 mb-1">
+                      [주문번호: {item.order.order_number}번] 테이블: {item.order.table_number}
+                    </div>
+                    <h3 className="text-xl font-bold">
+                      {item.menu.name} <span className="text-gray-500 ml-2">x {item.quantity}</span>
+                    </h3>
+                    <div className="text-xs text-gray-400 mt-2">
+                      주문 시간: {new Date(item.created_at).toLocaleTimeString()}
+                    </div>
                   </div>
-                  <h3 className="text-xl font-bold">
-                    {item.menu.name} <span className="text-gray-500 ml-2">x {item.quantity}</span>
-                  </h3>
-                  <div className="text-xs text-gray-400 mt-2">
-                    주문 시간: {new Date(item.created_at).toLocaleTimeString()}
-                  </div>
-                </div>
-                <Button 
-                  size="lg" 
-                  className="bg-yellow-500 hover:bg-yellow-600 text-white h-16 w-24 text-lg font-bold"
-                  onClick={() => markAsCooked(item.id)}
-                >
-                  조리<br/>완료
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="relative isolate shrink-0 overflow-hidden border-blue-600 bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100 h-16 min-w-32 text-base font-bold ml-3"
+                    disabled={busyIds.has(item.id) || cookedQuantity === item.quantity || !!queue.error}
+                    onClick={() => markAsCooked(item.id, cookedQuantity, item.quantity)}
+                    aria-label={`${item.menu.name} ${label}, ${item.quantity}개 중 ${cookedQuantity}개 조리 완료`}
+                  >
+                    <span aria-hidden="true" className="absolute inset-y-0 left-0 -z-10 bg-blue-600 transition-[width] duration-200" style={{ width: `${progress}%` }} />
+                    <span>{label}</span>
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center text-white" style={{ clipPath: `inset(0 ${100 - progress}% 0 0)` }}>{label}</span>
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

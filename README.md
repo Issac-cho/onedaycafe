@@ -78,5 +78,11 @@ npm run dev
 기존 데이터를 보존하면서 서빙 수량 컬럼을 추가하며, 이미 서빙 완료된 항목은 전체 수량을 반영합니다.
 그다음 앱을 배포하고 직원 화면을 새로고침하세요. 이 업데이트에 `database_schema.sql` 전체를 실행하면 안 됩니다.
 
+### 기존 DB에 수량별 조리 기능 적용
+
+수량별 서빙 SQL을 먼저 적용한 뒤 `migrations/20261030_cooked_quantity.sql`을 실행하세요.
+기존 조리·서빙 완료 내역을 보존합니다. 조리 버튼을 한 번 누르면 한 개가 준비되며,
+서빙 화면에서는 준비된 수량까지만 전달할 수 있습니다. SQL 적용 후 앱을 배포하고 모든 직원 화면을 새로고침하세요.
+
 ## 📄 License
 This project is licensed under the MIT License.

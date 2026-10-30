@@ -24,7 +24,7 @@ export function DashboardStats({ storeId }: { storeId: string }) {
     // 2. Fetch all order items
     const { data: items } = await supabase
       .from("order_items")
-      .select("quantity, served_quantity, status, menu_price, menu:menus(price)")
+      .select("quantity, served_quantity, cooked_quantity, status, menu_price, menu:menus(price)")
       .in("order_id", orderIds);
 
     if (items) {
@@ -36,8 +36,8 @@ export function DashboardStats({ storeId }: { storeId: string }) {
         // Fallback to menu.price if menu_price is null (for old data)
         const price = item.menu_price ?? item.menu?.price ?? 0;
         revenue += price * item.quantity;
-        if (item.status === "pending") pending += item.quantity;
-        if (item.status === "cooked") cooked += item.quantity - item.served_quantity;
+        pending += item.quantity - item.cooked_quantity;
+        cooked += item.cooked_quantity - item.served_quantity;
       });
 
       setStats({

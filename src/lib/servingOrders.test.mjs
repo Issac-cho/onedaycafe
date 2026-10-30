@@ -15,7 +15,8 @@ function load(path, dependencies = {}, globals = {}) {
   return exports;
 }
 const { groupServingOrders } = load("./servingOrders.ts");
-const item = (id, orderId, status) => ({ id, status, quantity: 2, served_quantity: status === "served" ? 2 : 0, created_at: "2026-10-30",
+const item = (id, orderId, status) => ({ id, status, quantity: 2, served_quantity: status === "served" ? 2 : 0,
+  cooked_quantity: status === "pending" ? 0 : 2, created_at: "2026-10-30",
   menu: { name: id, kitchen_group: 2 }, order: { id: orderId, order_number: 1, table_number: "3" } });
 
 test("groups by order ID, retains pending and served rows, and only enables completion after all served", () => {
@@ -28,7 +29,7 @@ test("groups by order ID, retains pending and served rows, and only enables comp
   assert.equal(groupServingOrders([]).length, 0);
 });
 
-function page(items, remaining = 0, conflict = false) {
+function page(items, remaining = 0, conflict = false, role = "server") {
   const updates = [];
   const alerts = [];
   const filters = [];
@@ -38,16 +39,18 @@ function page(items, remaining = 0, conflict = false) {
     eq(...args) { filters.push(args); return this; },
     neq(...args) { filters.push(args); return this; },
     select(_columns, options) {
-      return options?.head ? this : Promise.resolve({ data: conflict ? [] : [{ id: "ok", served_quantity: updates.at(-1)?.served_quantity }], error: null });
+      return options?.head ? this : Promise.resolve({ data: conflict ? [] : [{ id: "ok", ...updates.at(-1) }], error: null });
     },
     then(resolve) { resolve({ count: remaining, error: null }); },
   };
-  const { default: Page } = load("../app/[store_id]/server/page.tsx", {
+  const { default: Page } = load(`../app/[store_id]/${role}/page.tsx`, {
     react: { use: () => ({ store_id: "store" }), useState: value => [value, () => {}] },
     "@/lib/supabase": { supabase: { from: () => query } },
     "@/lib/useOrderQueue": { useOrderQueue: () => ({ items, loading: false, error: null, refresh: () => refreshes++ }) },
     "@/lib/servingOrders": { groupServingOrders },
     "@/components/ui/button": { Button: "button" },
+    "@/components/ui/input": { Input: "input" },
+    "@/components/ui/label": { Label: "label" },
     "@/components/ui/card": { Card: "section", CardContent: "article" },
     "@/components/QueueConnectionStatus": { QueueConnectionStatus: "aside" },
     "@/components/PinLock": { PinLock: "main" },
@@ -78,7 +81,7 @@ test("serving updates just the selected cooked item; completing updates the pare
   assert.equal(app.updates[0].status, "cooked");
   assert.equal(app.updates[0].served_quantity, 1);
   assert.ok(app.filters.some(([key, value]) => key === "id" && value === "A"));
-  assert.ok(app.filters.some(([key, value]) => key === "status" && value === "cooked"));
+  assert.ok(app.filters.some(([key, value]) => key === "cooked_quantity" && value === 2));
   assert.ok(app.filters.some(([key, value]) => key === "served_quantity" && value === 0));
   assert.equal(app.refreshes, 1);
   const completed = page([item("B", "two", "served")]);
@@ -90,7 +93,7 @@ test("serving updates just the selected cooked item; completing updates the pare
 
 test("N items require N successful clicks and the blue fill advances by 1/N", async () => {
   for (let count = 0; count < 3; count++) {
-    const current = { ...item("A", "one", "cooked"), quantity: 3, served_quantity: count };
+    const current = { ...item("A", "one", "cooked"), quantity: 3, cooked_quantity: 3, served_quantity: count };
     const app = page([current]);
     const button = app.buttons[0];
     assert.equal(button.children[0].props.style.width, `${count / 3 * 100}%`);
@@ -107,7 +110,7 @@ test("N items require N successful clicks and the blue fill advances by 1/N", as
 });
 
 test("one-item menus are fully served with a single click", async () => {
-  const app = page([{ ...item("A", "one", "cooked"), quantity: 1 }]);
+  const app = page([{ ...item("A", "one", "cooked"), quantity: 1, cooked_quantity: 1 }]);
   await app.buttons[0].onClick();
   assert.equal(app.updates[0].status, "served");
   assert.equal(app.updates[0].served_quantity, 1);
@@ -127,4 +130,42 @@ test("completion rechecks the database and refuses when another item is not serv
   assert.equal(app.updates.length, 0);
   assert.equal(app.alerts.length, 1);
   assert.equal(app.refreshes, 1);
+});
+
+test("kitchen requires N clicks, fills by 1/N, and changes status only after the final unit", async () => {
+  for (let count = 0; count < 3; count++) {
+    const current = { ...item("A", "one", "pending"), quantity: 3, cooked_quantity: count };
+    const app = page([current], 0, false, "chef");
+    assert.equal(app.buttons[0].children[0].props.style.width, `${count / 3 * 100}%`);
+    assert.equal(app.buttons[0].disabled, false);
+    await app.buttons[0].onClick();
+    assert.equal(app.updates[0].cooked_quantity, count + 1);
+    assert.equal(app.updates[0].status, count === 2 ? "cooked" : "pending");
+    assert.ok(app.filters.some(([key, value]) => key === "cooked_quantity" && value === count));
+    assert.equal(app.refreshes, 1);
+  }
+});
+
+test("kitchen handles single portions and concurrent updates", async () => {
+  const single = page([{ ...item("A", "one", "pending"), quantity: 1 }], 0, false, "chef");
+  await single.buttons[0].onClick();
+  assert.equal(single.updates[0].status, "cooked");
+  assert.equal(single.updates[0].cooked_quantity, 1);
+  const conflict = page([item("B", "one", "pending")], 0, true, "chef");
+  await conflict.buttons[0].onClick();
+  assert.ok(conflict.alerts[0].includes("다른 직원"));
+});
+
+test("partly cooked menus can be served without removing the remaining kitchen work", async () => {
+  const current = { ...item("A", "one", "pending"), quantity: 3, cooked_quantity: 1 };
+  const app = page([current]);
+  assert.equal(app.buttons[0].disabled, false);
+  await app.buttons[0].onClick();
+  assert.equal(app.updates[0].served_quantity, 1);
+  assert.equal(app.updates[0].status, "pending");
+  assert.ok(app.filters.some(([key, value]) => key === "cooked_quantity" && value === 1));
+  const waiting = page([{ ...current, served_quantity: 1 }]);
+  assert.equal(waiting.buttons[0].disabled, true);
+  assert.match(waiting.buttons[0]["aria-label"], /조리 중/);
+  assert.equal(waiting.buttons[1].disabled, true);
 });

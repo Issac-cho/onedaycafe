@@ -1,86 +1,140 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useOrderQueue } from "@/lib/useOrderQueue";
+import { groupServingOrders } from "@/lib/servingOrders";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { PinLock } from "@/components/PinLock";
 
 export default function ServerPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
-  const queue = useOrderQueue(store_id, "cooked");
-  const { items: cookedItems, loading } = queue;
+  const queue = useOrderQueue(store_id, "serving");
+  const orders = groupServingOrders(queue.items);
+  const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+
+  const setBusy = (id: string, busy: boolean) => {
+    setBusyIds(previous => {
+      const next = new Set(previous);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
 
   const markAsServed = async (itemId: string) => {
-    const { error } = await supabase
-      .from("order_items")
-      .update({ status: "served" })
-      .eq("id", itemId);
-
-    if (error) {
-      alert("처리 실패: " + error.message);
+    setBusy(itemId, true);
+    try {
+      const { data, error } = await supabase.from("order_items")
+        .update({ status: "served" }).eq("id", itemId).eq("status", "cooked").select("id");
+      if (error) throw error;
+      if (!data?.length) alert("이미 처리되었거나 상태가 변경된 메뉴입니다. 목록을 갱신합니다.");
+    } catch (error) {
+      console.error("서빙 완료 처리 실패", error);
+      alert("서빙 완료 처리에 실패했습니다. 연결을 확인하고 다시 시도해 주세요.");
+    } finally {
+      setBusy(itemId, false);
+      queue.refresh();
     }
-    queue.refresh();
+  };
+
+  const completeOrder = async (orderId: string) => {
+    setBusy(orderId, true);
+    try {
+      // 화면에 표시된 목록이 오래되었어도 미서빙 메뉴가 있으면 완료하지 않는다.
+      const { count, error: checkError } = await supabase.from("order_items")
+        .select("id", { count: "exact", head: true }).eq("order_id", orderId).neq("status", "served");
+      if (checkError) throw checkError;
+      if (count !== 0) {
+        alert("아직 서빙이 완료되지 않은 메뉴가 있습니다. 목록을 갱신합니다.");
+        return;
+      }
+      const { data, error } = await supabase.from("orders").update({ status: "completed" })
+        .eq("id", orderId).eq("store_id", store_id).neq("status", "completed").select("id");
+      if (error) throw error;
+      if (!data?.length) alert("이미 완료되었거나 상태가 변경된 주문입니다. 목록을 갱신합니다.");
+    } catch (error) {
+      console.error("주문 완료 처리 실패", error);
+      alert("주문 완료 처리에 실패했습니다. 연결을 확인하고 다시 시도해 주세요.");
+    } finally {
+      setBusy(orderId, false);
+      queue.refresh();
+    }
   };
 
   return (
     <PinLock storeId={store_id} role="server">
-    <div className="container mx-auto p-4 max-w-4xl space-y-6">
-      <div className="bg-blue-900 text-white p-4 rounded-lg shadow-md">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          🏃‍♂️ 홀 서빙 대기열
-        </h1>
-        <p className="text-blue-200 text-sm mt-1">
-          주방에서 조리가 완료된 요리들입니다. 손님 테이블로 전달 후 ‘서빙 완료’를 눌러주세요.
-        </p>
-      </div>
-
-      <QueueConnectionStatus {...queue} />
-
-      {loading ? (
-        <div className="text-center py-10">목록을 불러오는 중...</div>
-      ) : queue.error && cookedItems.length === 0 ? (
-        <p className="text-center py-10 text-red-700" role="alert">주문 목록을 확인할 수 없습니다. 다시 조회해 주세요.</p>
-      ) : cookedItems.length === 0 ? (
-        <div className="text-center py-20 text-gray-500 border-2 border-dashed rounded-xl">
-          <p className="text-xl">현재 서빙 대기 중인 요리가 없습니다! 👏</p>
+      <div className="container mx-auto p-4 max-w-4xl space-y-6">
+        <div className="bg-blue-900 text-white p-4 rounded-lg shadow-md">
+          <h1 className="text-2xl font-bold">🏃‍♂️ 홀 서빙 대기열</h1>
+          <p className="text-blue-200 text-sm mt-1">
+            준비된 메뉴를 전달하고 서빙 완료를 눌러주세요. 모두 전달한 주문은 주문 완료로 마무리하세요.
+          </p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {cookedItems.map((item) => (
-            <Card key={item.id} className="border-l-4 border-l-blue-500 shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
-              <CardContent className="p-4 flex justify-between items-center">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">
-                      주문번호: {item.order.order_number}
-                    </span>
-                    <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">
-                      테이블: {item.order.table_number}
-                    </span>
-                    <span className="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-1 rounded">
-                      출발: {item.menu.kitchen_group}구역
-                    </span>
+
+        <QueueConnectionStatus {...queue} />
+
+        {queue.loading ? (
+          <div className="text-center py-10">목록을 불러오는 중...</div>
+        ) : queue.error && orders.length === 0 ? (
+          <p className="text-center py-10 text-red-700" role="alert">주문 목록을 확인할 수 없습니다. 다시 조회해 주세요.</p>
+        ) : orders.length === 0 ? (
+          <div className="text-center py-20 text-gray-500 border-2 border-dashed rounded-xl">
+            <p className="text-xl">현재 진행 중인 주문이 없습니다! 👏</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            {orders.map(({ order, items, allServed }) => (
+              <Card key={order.id} className={`border-l-4 shadow-sm ${allServed ? "border-l-green-500" : "border-l-blue-500"}`}>
+                <CardContent className="p-4 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-lg font-bold">주문번호 {order.order_number}번</h2>
+                    <span className="rounded bg-blue-50 px-2 py-1 text-sm font-semibold text-blue-800">테이블 {order.table_number}</span>
                   </div>
-                  <h3 className="text-xl font-bold">
-                    {item.menu.name} <span className="text-gray-500 ml-1">x {item.quantity}</span>
-                  </h3>
-                </div>
-                <Button 
-                  size="lg" 
-                  className="bg-blue-600 hover:bg-blue-700 text-white h-16 w-24 text-lg font-bold"
-                  onClick={() => markAsServed(item.id)}
-                >
-                  서빙<br/>완료
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
+                  <div className="divide-y">
+                    {items.map(item => {
+                      const cooked = item.status === "cooked";
+                      const served = item.status === "served";
+                      return (
+                        <div key={item.id} className={`flex items-center gap-2 py-3 ${!cooked && !served ? "opacity-50" : ""}`}>
+                          <span className={`min-w-0 flex-1 font-semibold break-words ${served ? "text-gray-500" : ""}`}>
+                            {item.menu.name} <span className="text-sm font-normal">× {item.quantity}</span>
+                          </span>
+                          <span className="shrink-0 text-xs text-gray-500">출발: {item.menu.kitchen_group}구역</span>
+                          <Button
+                            size="sm"
+                            variant={cooked ? "default" : "secondary"}
+                            className={`shrink-0 ${cooked ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}`}
+                            disabled={!cooked || busyIds.has(item.id) || !!queue.error}
+                            onClick={() => markAsServed(item.id)}
+                            aria-label={`${item.menu.name} ${served ? "서빙 완료됨" : cooked ? "서빙 완료" : "조리 중"}`}
+                          >
+                            {busyIds.has(item.id) ? "처리 중" : served ? "서빙 완료됨" : cooked ? "서빙 완료" : "조리 중"}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="border-t pt-3 space-y-2">
+                    <p className={`text-xs ${allServed ? "text-green-700" : "text-gray-500"}`}>
+                      {allServed ? "모든 메뉴를 서빙했습니다. 주문을 완료해 주세요." : `서빙 완료 ${items.filter(item => item.status === "served").length} / ${items.length}종`}
+                    </p>
+                    <Button
+                      className="w-full bg-green-600 hover:bg-green-700 text-white"
+                      disabled={!allServed || busyIds.has(order.id) || !!queue.error}
+                      onClick={() => completeOrder(order.id)}
+                    >
+                      {busyIds.has(order.id) ? "완료 처리 중..." : "주문 완료"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </PinLock>
   );
 }

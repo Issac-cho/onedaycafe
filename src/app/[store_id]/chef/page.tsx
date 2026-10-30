@@ -42,7 +42,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
             type="number" 
             value={kitchenGroup} 
             onChange={(e) => setKitchenGroup(e.target.value)} 
-            className="w-20 text-black"
+            className="w-20 text-white"
           />
         </div>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 export function QueueConnectionStatus({ connected, error, lastUpdated, refresh }: {
   connected: boolean;
@@ -9,15 +10,18 @@ export function QueueConnectionStatus({ connected, error, lastUpdated, refresh }
   refresh: () => void;
 }) {
   return (
-    <div className="rounded-lg border p-3 space-y-2 text-sm" role="status">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className={connected ? "text-green-700" : "text-amber-700"}>
-          {connected ? "실시간 연결됨 · 5초 간격 보조 조회" : "실시간 연결 확인 중 · 5초 간격으로 목록 재조회"}
-        </span>
-        <Button variant="outline" size="sm" onClick={refresh}>목록 다시 조회</Button>
-      </div>
-      <p className="text-gray-500">마지막 갱신: {lastUpdated ? lastUpdated.toLocaleTimeString() : "아직 확인되지 않음"}</p>
-      {error && <p className="text-red-700" role="alert">{error} 이전 목록은 최신 상태가 아닐 수 있습니다.</p>}
+    <div className="flex items-center gap-2 whitespace-nowrap rounded-md border px-2 py-1 text-xs" role="status">
+      <span className="inline-flex shrink-0 items-center gap-1.5">
+        <span className={`size-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} aria-hidden="true" />
+        {connected ? "연결 중" : "연결 끊김"}
+      </span>
+      <span className="min-w-0 truncate text-gray-500">
+        마지막 갱신: {lastUpdated ? lastUpdated.toLocaleTimeString("ko-KR", { hour12: false }) : "—"}
+      </span>
+      {error && <span className="shrink-0 text-red-700" role="alert" title={`${error} 이전 목록은 최신 상태가 아닐 수 있습니다.`}>조회 실패</span>}
+      <Button type="button" variant="ghost" size="icon-xs" className="ml-auto rounded-full text-gray-500" onClick={refresh} aria-label="목록 다시 조회" title="목록 다시 조회">
+        <RefreshCw aria-hidden="true" />
+      </Button>
     </div>
   );
 }

@@ -3,16 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
 
-type QueueItem = {
+export type QueueItem = {
   id: string;
   quantity: number;
   status: string;
   created_at: string;
   menu: { id: string; name: string; kitchen_group: number; store_id: string };
-  order: { id: string; table_number: string; order_number: number };
+  order: { id: string; table_number: string; order_number: number; status: string };
 };
 
-export function useOrderQueue(storeId: string, status: "pending" | "cooked", kitchenGroup?: string) {
+export function useOrderQueue(storeId: string, status: "pending" | "cooked" | "serving", kitchenGroup?: string) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,19 +37,30 @@ export function useOrderQueue(storeId: string, status: "pending" | "cooked", kit
       controller = new AbortController();
       const timeout = setTimeout(() => controller?.abort(), 10000);
       try {
-        let query = supabase.from("order_items").select(`
-          id, quantity, status, created_at,
-          menu:menus!inner(id, name, kitchen_group, store_id),
-          order:orders!inner(id, table_number, order_number)
-        `).eq("status", status).eq("menu.store_id", storeId);
-        if (kitchenGroup !== undefined) {
-          query = query.eq("menu.kitchen_group", Number(kitchenGroup));
+        const allItems: QueueItem[] = [];
+        for (let offset = 0; ; offset += 500) {
+          let query = supabase.from("order_items").select(`
+            id, quantity, status, created_at,
+            menu:menus!inner(id, name, kitchen_group, store_id),
+            order:orders!inner(id, table_number, order_number, status)
+          `).eq("menu.store_id", storeId).eq("order.store_id", storeId);
+          if (status === "serving") {
+            query = query.neq("order.status", "completed");
+          } else {
+            query = query.eq("status", status);
+          }
+          if (kitchenGroup !== undefined) {
+            query = query.eq("menu.kitchen_group", Number(kitchenGroup));
+          }
+          const { data, error } = await query.order("created_at", { ascending: true })
+            .order("id", { ascending: true }).range(offset, offset + 499)
+            .abortSignal(controller.signal);
+          if (error) throw error;
+          allItems.push(...((data ?? []) as unknown as QueueItem[]));
+          if (!data || data.length < 500) break;
         }
-        const { data, error } = await query.order("created_at", { ascending: true })
-          .abortSignal(controller.signal);
-        if (error) throw error;
         if (active) {
-          setItems((data ?? []) as unknown as QueueItem[]);
+          setItems(allItems);
           setError(null);
           setLastUpdated(new Date());
         }
@@ -88,6 +99,9 @@ export function useOrderQueue(storeId: string, status: "pending" | "cooked", kit
 
     const channel = supabase.channel(`queue:${storeId}:${status}:${kitchenGroup ?? "all"}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => {
+        void fetchItems();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `store_id=eq.${storeId}` }, () => {
         void fetchItems();
       })
       .subscribe((state, error) => {

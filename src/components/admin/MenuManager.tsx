@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 
+type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean };
+
 export function MenuManager({ storeId }: { storeId: string }) {
-  const [menus, setMenus] = useState<any[]>([]);
+  const [menus, setMenus] = useState<Menu[]>([]);
   const [loading, setLoading] = useState(true);
   
   // New Menu Form State
@@ -17,21 +19,23 @@ export function MenuManager({ storeId }: { storeId: string }) {
   const [category, setCategory] = useState("식사");
   const [kitchenGroup, setKitchenGroup] = useState("1");
 
-  useEffect(() => {
-    fetchMenus();
-  }, [storeId]);
-
-  const fetchMenus = async () => {
+  const fetchMenus = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("menus")
       .select("*")
       .eq("store_id", storeId)
+      .eq("is_deleted", false)
       .order("created_at", { ascending: false });
     
-    if (data) setMenus(data);
+    if (error) alert("메뉴 조회 실패: " + error.message);
+    else if (data) setMenus(data);
     setLoading(false);
-  };
+  }, [storeId]);
+
+  useEffect(() => {
+    void Promise.resolve().then(fetchMenus);
+  }, [fetchMenus]);
 
   const handleAddMenu = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,9 +69,17 @@ export function MenuManager({ storeId }: { storeId: string }) {
   };
 
   const deleteMenu = async (menuId: string) => {
-    if (confirm("정말 이 메뉴를 삭제하시겠습니까?")) {
-      await supabase.from("menus").delete().eq("id", menuId);
-      fetchMenus();
+    if (!confirm("이 메뉴를 삭제하시겠습니까? 기존 주문 내역과 매출 기록은 보존됩니다.")) return;
+    try {
+      const { data, error } = await supabase.from("menus")
+        .update({ is_deleted: true, is_hidden: true })
+        .eq("id", menuId).eq("store_id", storeId).eq("is_deleted", false).select("id");
+      if (error) throw error;
+      if (!data?.length) alert("이미 삭제되었거나 변경 권한이 없는 메뉴입니다.");
+      await fetchMenus();
+    } catch (error) {
+      console.error("메뉴 삭제 실패", error);
+      alert("메뉴를 삭제하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.");
     }
   };
 

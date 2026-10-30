@@ -96,5 +96,12 @@ npm run dev
 PostgreSQL이 설치된 Windows에서는 `./tests/test-atomic-orders.ps1`로 격리된 임시 DB 검증을 실행할 수 있습니다.
 이 스크립트는 운영 DB에 접속하지 않습니다.
 
+### 기존 DB에 메뉴 소프트 삭제 적용
+
+원자적 주문 접수 SQL을 먼저 적용한 뒤 `migrations/20261030_soft_delete_menus.sql`을 실행하세요.
+메뉴 삭제는 관리·주문 목록에서만 제외하며, 진행 중인 주문과 과거 매출·CSV 내역은 유지됩니다.
+주문 이력이 있는 메뉴의 물리 삭제도 DB에서 차단합니다. 이미 삭제된 과거 내역을 복구하는 작업은 포함하지 않습니다.
+SQL 적용 후 앱을 배포하고 직원 화면을 새로고침하세요.
+
 ## 📄 License
 This project is licensed under the MIT License.

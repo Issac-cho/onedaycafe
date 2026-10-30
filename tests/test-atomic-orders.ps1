@@ -39,7 +39,7 @@ try {
     $assertions = 'DO $$ BEGIN ASSERT (SELECT count(*) FROM public.orders) = 6; ASSERT (SELECT count(DISTINCT order_number) FROM public.orders) = 6; ASSERT (SELECT count(*) FROM public.order_items) = 6; END; $$;'
     & (Join-Path $pgBin 'psql.exe') @psqlArgs -c $assertions
     if ($LASTEXITCODE -ne 0) { throw 'concurrency assertions failed' }
-    Write-Output 'Atomic order tests passed (rollback, retry, validation, anon RLS, concurrent requests and numbering).'
+    Write-Output 'Order and menu history tests passed (rollback, retries, validation, soft deletion, RLS, concurrency and numbering).'
 } finally {
     if ($started) {
         & (Join-Path $pgBin 'pg_ctl.exe') -D $testRoot -m fast -w stop | Out-Null

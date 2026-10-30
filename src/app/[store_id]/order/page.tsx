@@ -49,6 +49,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         .select("*")
         .eq("store_id", store_id)
         .eq("is_hidden", false)
+        .eq("is_deleted", false)
         .order("category")
         .order("name");
 

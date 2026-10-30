@@ -6,6 +6,7 @@ import { supabase } from "./supabase";
 export type QueueItem = {
   id: string;
   quantity: number;
+  served_quantity: number;
   status: string;
   created_at: string;
   menu: { id: string; name: string; kitchen_group: number; store_id: string };
@@ -40,7 +41,7 @@ export function useOrderQueue(storeId: string, status: "pending" | "cooked" | "s
         const allItems: QueueItem[] = [];
         for (let offset = 0; ; offset += 500) {
           let query = supabase.from("order_items").select(`
-            id, quantity, status, created_at,
+            id, quantity, served_quantity, status, created_at,
             menu:menus!inner(id, name, kitchen_group, store_id),
             order:orders!inner(id, table_number, order_number, status)
           `).eq("menu.store_id", storeId).eq("order.store_id", storeId);

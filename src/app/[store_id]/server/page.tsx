@@ -14,6 +14,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
   const queue = useOrderQueue(store_id, "serving");
   const orders = groupServingOrders(queue.items);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
+  const [servedCounts, setServedCounts] = useState<Record<string, number>>({});
 
   const setBusy = (id: string, busy: boolean) => {
     setBusyIds(previous => {
@@ -24,13 +25,22 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
     });
   };
 
-  const markAsServed = async (itemId: string) => {
+  const markAsServed = async (itemId: string, servedQuantity: number, quantity: number) => {
     setBusy(itemId, true);
     try {
       const { data, error } = await supabase.from("order_items")
-        .update({ status: "served" }).eq("id", itemId).eq("status", "cooked").select("id");
+        .update({
+          served_quantity: servedQuantity + 1,
+          status: servedQuantity + 1 === quantity ? "served" : "cooked",
+        })
+        .eq("id", itemId).eq("status", "cooked").eq("served_quantity", servedQuantity)
+        .select("id, served_quantity");
       if (error) throw error;
-      if (!data?.length) alert("이미 처리되었거나 상태가 변경된 메뉴입니다. 목록을 갱신합니다.");
+      if (!data?.length) {
+        alert("다른 직원이 먼저 처리했거나 상태가 변경되었습니다. 목록을 확인한 뒤 다시 눌러주세요.");
+      } else {
+        setServedCounts(previous => ({ ...previous, [itemId]: data[0].served_quantity }));
+      }
     } catch (error) {
       console.error("서빙 완료 처리 실패", error);
       alert("서빙 완료 처리에 실패했습니다. 연결을 확인하고 다시 시도해 주세요.");
@@ -70,7 +80,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
         <div className="bg-blue-900 text-white p-4 rounded-lg shadow-md">
           <h1 className="text-2xl font-bold">🏃‍♂️ 홀 서빙 대기열</h1>
           <p className="text-blue-200 text-sm mt-1">
-            준비된 메뉴를 전달하고 서빙 완료를 눌러주세요. 모두 전달한 주문은 주문 완료로 마무리하세요.
+            메뉴를 한 개 전달할 때마다 서빙 완료를 눌러주세요. 모두 전달한 주문은 주문 완료로 마무리하세요.
           </p>
         </div>
 
@@ -97,6 +107,12 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                     {items.map(item => {
                       const cooked = item.status === "cooked";
                       const served = item.status === "served";
+                      const servedQuantity = Math.min(item.quantity, Math.max(
+                        served ? item.quantity : item.served_quantity,
+                        servedCounts[item.id] ?? 0,
+                      ));
+                      const fullyServed = servedQuantity === item.quantity;
+                      const label = busyIds.has(item.id) ? "처리 중" : fullyServed ? "서빙 완료됨" : cooked ? `서빙 완료 ${servedQuantity}/${item.quantity}` : "조리 중";
                       return (
                         <div key={item.id} className={`flex items-center gap-2 py-3 ${!cooked && !served ? "opacity-50" : ""}`}>
                           <span className={`min-w-0 flex-1 font-semibold break-words ${served ? "text-gray-500" : ""}`}>
@@ -105,13 +121,15 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                           <span className="shrink-0 text-xs text-gray-500">출발: {item.menu.kitchen_group}구역</span>
                           <Button
                             size="sm"
-                            variant={cooked ? "default" : "secondary"}
-                            className={`shrink-0 ${cooked ? "bg-blue-600 hover:bg-blue-700 text-white" : ""}`}
-                            disabled={!cooked || busyIds.has(item.id) || !!queue.error}
-                            onClick={() => markAsServed(item.id)}
-                            aria-label={`${item.menu.name} ${served ? "서빙 완료됨" : cooked ? "서빙 완료" : "조리 중"}`}
+                            variant={cooked || served ? "outline" : "secondary"}
+                            className={`relative isolate shrink-0 overflow-hidden min-w-28 ${cooked || served ? "border-blue-600 bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100" : ""}`}
+                            disabled={!cooked || fullyServed || busyIds.has(item.id) || !!queue.error}
+                            onClick={() => markAsServed(item.id, servedQuantity, item.quantity)}
+                            aria-label={`${item.menu.name} ${label}, ${item.quantity}개 중 ${servedQuantity}개 서빙 완료`}
                           >
-                            {busyIds.has(item.id) ? "처리 중" : served ? "서빙 완료됨" : cooked ? "서빙 완료" : "조리 중"}
+                            {(cooked || served) && <span aria-hidden="true" className="absolute inset-y-0 left-0 -z-10 bg-blue-600 transition-[width] duration-200" style={{ width: `${servedQuantity / item.quantity * 100}%` }} />}
+                            <span>{label}</span>
+                            {(cooked || served) && <span aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center text-white" style={{ clipPath: `inset(0 ${100 - servedQuantity / item.quantity * 100}% 0 0)` }}>{label}</span>}
                           </Button>
                         </div>
                       );

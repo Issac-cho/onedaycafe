@@ -15,7 +15,7 @@ function load(path, dependencies = {}, globals = {}) {
   return exports;
 }
 const { groupServingOrders } = load("./servingOrders.ts");
-const item = (id, orderId, status) => ({ id, status, quantity: 2, created_at: "2026-10-30",
+const item = (id, orderId, status) => ({ id, status, quantity: 2, served_quantity: status === "served" ? 2 : 0, created_at: "2026-10-30",
   menu: { name: id, kitchen_group: 2 }, order: { id: orderId, order_number: 1, table_number: "3" } });
 
 test("groups by order ID, retains pending and served rows, and only enables completion after all served", () => {
@@ -28,7 +28,7 @@ test("groups by order ID, retains pending and served rows, and only enables comp
   assert.equal(groupServingOrders([]).length, 0);
 });
 
-function page(items, remaining = 0) {
+function page(items, remaining = 0, conflict = false) {
   const updates = [];
   const alerts = [];
   const filters = [];
@@ -38,7 +38,7 @@ function page(items, remaining = 0) {
     eq(...args) { filters.push(args); return this; },
     neq(...args) { filters.push(args); return this; },
     select(_columns, options) {
-      return options?.head ? this : Promise.resolve({ data: [{ id: "ok" }], error: null });
+      return options?.head ? this : Promise.resolve({ data: conflict ? [] : [{ id: "ok", served_quantity: updates.at(-1)?.served_quantity }], error: null });
     },
     then(resolve) { resolve({ count: remaining, error: null }); },
   };
@@ -63,11 +63,11 @@ function page(items, remaining = 0) {
 
 test("pending rows are dimmed with disabled cooking buttons; served rows remain visible", () => {
   const app = page([item("A", "one", "pending"), item("B", "one", "cooked"), item("C", "one", "served")]);
-  assert.equal(app.buttons[0].children, "조리 중");
+  assert.match(app.buttons[0]["aria-label"], /조리 중/);
   assert.equal(app.buttons[0].disabled, true);
-  assert.equal(app.buttons[1].children, "서빙 완료");
+  assert.match(app.buttons[1]["aria-label"], /서빙 완료 0\/2/);
   assert.equal(app.buttons[1].disabled, false);
-  assert.equal(app.buttons[2].children, "서빙 완료됨");
+  assert.match(app.buttons[2]["aria-label"], /서빙 완료됨/);
   assert.equal(app.buttons[2].disabled, true);
   assert.equal(app.buttons[3].disabled, true);
 });
@@ -75,15 +75,50 @@ test("pending rows are dimmed with disabled cooking buttons; served rows remain 
 test("serving updates just the selected cooked item; completing updates the parent order", async () => {
   const app = page([item("A", "one", "cooked")]);
   await app.buttons[0].onClick();
-  assert.equal(app.updates[0].status, "served");
+  assert.equal(app.updates[0].status, "cooked");
+  assert.equal(app.updates[0].served_quantity, 1);
   assert.ok(app.filters.some(([key, value]) => key === "id" && value === "A"));
   assert.ok(app.filters.some(([key, value]) => key === "status" && value === "cooked"));
+  assert.ok(app.filters.some(([key, value]) => key === "served_quantity" && value === 0));
   assert.equal(app.refreshes, 1);
   const completed = page([item("B", "two", "served")]);
   assert.equal(completed.buttons[1].disabled, false);
   await completed.buttons[1].onClick();
   assert.equal(completed.updates[0].status, "completed");
   assert.equal(completed.refreshes, 1);
+});
+
+test("N items require N successful clicks and the blue fill advances by 1/N", async () => {
+  for (let count = 0; count < 3; count++) {
+    const current = { ...item("A", "one", "cooked"), quantity: 3, served_quantity: count };
+    const app = page([current]);
+    const button = app.buttons[0];
+    assert.equal(button.children[0].props.style.width, `${count / 3 * 100}%`);
+    assert.match(button.className, /border-blue-600 bg-white/);
+    await button.onClick();
+    assert.equal(app.updates[0].served_quantity, count + 1);
+    assert.equal(app.updates[0].status, count === 2 ? "served" : "cooked");
+    assert.ok(app.filters.some(([key, value]) => key === "served_quantity" && value === count));
+  }
+  const done = page([{ ...item("A", "one", "served"), quantity: 3, served_quantity: 3 }]);
+  assert.equal(done.buttons[0].disabled, true);
+  assert.equal(done.buttons[0].children[0].props.style.width, "100%");
+  assert.equal(done.buttons[1].disabled, false);
+});
+
+test("one-item menus are fully served with a single click", async () => {
+  const app = page([{ ...item("A", "one", "cooked"), quantity: 1 }]);
+  await app.buttons[0].onClick();
+  assert.equal(app.updates[0].status, "served");
+  assert.equal(app.updates[0].served_quantity, 1);
+});
+
+test("a concurrent update is reported instead of silently claiming the click succeeded", async () => {
+  const app = page([item("A", "one", "cooked")], 0, true);
+  await app.buttons[0].onClick();
+  assert.ok(app.alerts[0].includes("다른 직원"));
+  assert.equal(app.refreshes, 1);
+  assert.ok(app.filters.some(([key, value]) => key === "served_quantity" && value === 0));
 });
 
 test("completion rechecks the database and refuses when another item is not served", async () => {

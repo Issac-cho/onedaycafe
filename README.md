@@ -72,5 +72,11 @@ npm run dev
 ```
 브라우저를 열고 [http://localhost:3000](http://localhost:3000)으로 접속하여 "새로운 매장 계정 만들기"를 통해 관리자 계정을 생성하고 테스트를 시작하세요!
 
+### 기존 DB에 수량별 서빙 기능 적용
+
+앱 업데이트 전에 Supabase SQL Editor에서 `migrations/20261030_served_quantity.sql`을 실행하세요.
+기존 데이터를 보존하면서 서빙 수량 컬럼을 추가하며, 이미 서빙 완료된 항목은 전체 수량을 반영합니다.
+그다음 앱을 배포하고 직원 화면을 새로고침하세요. 이 업데이트에 `database_schema.sql` 전체를 실행하면 안 됩니다.
+
 ## 📄 License
 This project is licensed under the MIT License.

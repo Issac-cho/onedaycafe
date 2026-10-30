@@ -1,26 +1,50 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useRef, useState, use } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { readPendingOrder, savePendingOrder, clearPendingOrder, orderRpcArgs, isRejectedOrder, type PendingOrder } from "@/lib/orderSubmission";
 import { PinLock } from "@/components/PinLock";
+
+type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean };
 
 export default function OrderPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
-  const [menus, setMenus] = useState<any[]>([]);
-  const [cart, setCart] = useState<{ menu: any; quantity: number }[]>([]);
+  const [menus, setMenus] = useState<Menu[]>([]);
+  const [cart, setCart] = useState<{ menu: Menu; quantity: number }[]>([]);
   const [tableNumber, setTableNumber] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("현금");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  const [pendingOrder, setPendingOrder] = useState<PendingOrder | null>(null);
+  const [restoring, setRestoring] = useState(true);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      try {
+        setPendingOrder(readPendingOrder(sessionStorage, store_id));
+      } catch (error) {
+        console.error("미확인 주문 복원 실패", error);
+        setStorageError("저장된 접수 상태를 확인할 수 없습니다. 관리자에게 확인한 뒤 이용해 주세요.");
+      } finally {
+        setRestoring(false);
+      }
+    });
+    return () => { active = false; };
+  }, [store_id]);
+
   useEffect(() => {
     const fetchMenus = async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("menus")
         .select("*")
         .eq("store_id", store_id)
@@ -35,8 +59,8 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     fetchMenus();
   }, [store_id]);
 
-  const addToCart = (menu: any) => {
-    if (menu.is_sold_out) return;
+  const addToCart = (menu: Menu) => {
+    if (menu.is_sold_out || pendingOrder || submitting || restoring || storageError) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.menu.id === menu.id);
       if (existing) {
@@ -49,6 +73,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   };
 
   const removeFromCart = (menuId: string) => {
+    if (pendingOrder || submitting || restoring || storageError) return;
     setCart((prev) => {
       const existing = prev.find((item) => item.menu.id === menuId);
       if (existing && existing.quantity > 1) {
@@ -73,49 +98,49 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       return;
     }
 
+    if (restoring || storageError) return;
+    await submitOrder();
+  };
+
+  const submitOrder = async () => {
+    if (submittingRef.current || restoring || storageError) return;
+    submittingRef.current = true;
     setSubmitting(true);
-
-    // 1. Create Order
-    const { data: orderData, error: orderError } = await supabase
-      .from("orders")
-      .insert([
-        {
-          store_id,
-          table_number: tableNumber,
-          payment_method: paymentMethod,
-          status: "received",
-        },
-      ])
-      .select()
-      .single();
-
-    if (orderError) {
-      alert("주문 접수 실패: " + orderError.message);
-      setSubmitting(false);
-      return;
-    }
-
-    // 2. Create Order Items
-    const orderItems = cart.map((item) => ({
-      order_id: orderData.id,
-      menu_id: item.menu.id,
-      menu_name: item.menu.name,
-      menu_price: item.menu.price,
-      quantity: item.quantity,
-      status: "pending",
-    }));
-
-    const { error: itemsError } = await supabase.from("order_items").insert(orderItems);
-
-    if (itemsError) {
-      alert("주문 상세 접수 실패: " + itemsError.message);
-    } else {
-      alert(`주문이 성공적으로 전송되었습니다!\n\n✨ 주문번호: ${orderData.order_number}번\n(주문자/손님께 이 번호를 안내해 주세요)`);
+    try {
+      const request = pendingOrder ?? {
+        requestId: crypto.randomUUID(),
+        storeId: store_id,
+        tableNumber: tableNumber.trim(),
+        paymentMethod,
+        items: cart.map(({ menu, quantity }) => ({ menu_id: menu.id, quantity, unit_price: menu.price })),
+      };
+      // 요청을 보내기 전에 보관해 응답 유실·새로고침 후에도 같은 ID로 재시도한다.
+      savePendingOrder(sessionStorage, request);
+      setPendingOrder(request);
+      const { data, error } = await supabase.rpc("submit_order", orderRpcArgs(request));
+      if (error) {
+        if (isRejectedOrder(error.code)) {
+          clearPendingOrder(sessionStorage, store_id);
+          setPendingOrder(null);
+          alert("주문이 접수되지 않았습니다: " + error.message + "\n메뉴를 다시 확인해 주세요.");
+        } else {
+          alert("접수 결과를 확인하지 못했습니다. ‘접수 확인 / 재시도’를 눌러주세요. 같은 요청은 중복 접수되지 않습니다.");
+        }
+        return;
+      }
+      if (!data?.id || !Number.isInteger(data.order_number)) throw new Error("주문 응답 형식이 올바르지 않습니다.");
+      clearPendingOrder(sessionStorage, store_id);
+      setPendingOrder(null);
       setCart([]);
       setTableNumber("");
+      alert(`주문이 성공적으로 접수되었습니다!\n\n✨ 주문번호: ${data.order_number}번\n(주문자/손님께 이 번호를 안내해 주세요)`);
+    } catch (error) {
+      console.error("주문 접수 결과 확인 실패", error);
+      alert("접수 결과 확인 또는 임시 저장에 실패했습니다. 이 화면을 유지하고 다시 시도해 주세요.");
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
-
-    setSubmitting(false);
   };
 
   // Group menus by category
@@ -123,13 +148,23 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     if (!acc[menu.category]) acc[menu.category] = [];
     acc[menu.category].push(menu);
     return acc;
-  }, {} as Record<string, any[]>);
+  }, {} as Record<string, Menu[]>);
 
   if (loading) return <div className="p-8 text-center">메뉴를 불러오는 중...</div>;
 
   return (
     <PinLock storeId={store_id} role="order">
       <div className="container mx-auto p-4 max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-6">
+      {storageError && <p className="md:col-span-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700" role="alert">{storageError}</p>}
+      {pendingOrder && (
+        <div className="md:col-span-3 rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-2" role="status">
+          <p className="font-semibold">{submitting ? "주문 접수 확인 중..." : "접수 결과를 확인해야 하는 주문이 있습니다."}</p>
+          <p className="text-sm">테이블 {pendingOrder.tableNumber} · {pendingOrder.items.reduce((sum, item) => sum + item.quantity, 0)}개 · {pendingOrder.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0).toLocaleString()}원</p>
+          <p className="text-sm text-gray-600">아래 버튼으로 먼저 접수 결과를 확인해 주세요. 새로고침해도 이 요청을 이어서 확인합니다.</p>
+          <Button type="button" disabled={submitting || restoring || !!storageError} onClick={submitOrder}>접수 확인 / 재시도</Button>
+        </div>
+      )}
+      <fieldset disabled={submitting || !!pendingOrder || restoring || !!storageError} className="contents">
       {/* Menu List */}
       <div className="md:col-span-2 space-y-6">
         <h1 className="text-2xl font-bold border-b pb-2">메뉴 주문</h1>
@@ -141,7 +176,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
             <div key={category} className="space-y-4">
               <h2 className="text-xl font-bold bg-primary/10 p-2 rounded">{category}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {groupedMenus[category].map((menu: any) => (
+                {groupedMenus[category].map((menu: Menu) => (
                   <Card 
                     key={menu.id} 
                     className={`cursor-pointer transition-colors ${menu.is_sold_out ? 'opacity-50' : 'hover:border-primary'}`}
@@ -226,7 +261,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                 <Button 
                   type="submit" 
                   className="w-full text-lg h-12" 
-                  disabled={submitting || cart.length === 0}
+                  disabled={submitting || !!pendingOrder || restoring || !!storageError || cart.length === 0}
                 >
                   {submitting ? "주문 전송 중..." : "주문 및 결제 완료"}
                 </Button>
@@ -235,6 +270,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
           </CardContent>
         </Card>
       </div>
+      </fieldset>
     </div>
     </PinLock>
   );

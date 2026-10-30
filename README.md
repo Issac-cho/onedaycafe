@@ -84,5 +84,17 @@ npm run dev
 기존 조리·서빙 완료 내역을 보존합니다. 조리 버튼을 한 번 누르면 한 개가 준비되며,
 서빙 화면에서는 준비된 수량까지만 전달할 수 있습니다. SQL 적용 후 앱을 배포하고 모든 직원 화면을 새로고침하세요.
 
+### 기존 DB에 원자적 주문 접수 적용
+
+앱 업데이트 전에 Supabase SQL Editor에서 `migrations/20261030_atomic_orders.sql`을 실행하세요.
+주문과 상세를 한 트랜잭션으로 저장하고, 같은 요청의 재시도는 기존 주문번호를 반환합니다.
+매장별 동시 접수의 번호 발급도 직렬화합니다. 기존 주문 데이터는 보존됩니다.
+접수 결과가 불명확할 때는 해당 탭을 유지하고 ‘접수 확인 / 재시도’를 사용하세요.
+같은 탭의 새로고침 후에도 이어서 확인할 수 있습니다. 탭 종료·사이트 저장소 삭제 후에는 복원되지 않습니다.
+
+검증: `node --test src/lib/*.test.mjs`.
+PostgreSQL이 설치된 Windows에서는 `./tests/test-atomic-orders.ps1`로 격리된 임시 DB 검증을 실행할 수 있습니다.
+이 스크립트는 운영 DB에 접속하지 않습니다.
+
 ## 📄 License
 This project is licensed under the MIT License.

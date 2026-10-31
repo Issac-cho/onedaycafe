@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import type { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -10,11 +11,14 @@ import { Label } from "@/components/ui/label";
 import { MenuManager } from "@/components/admin/MenuManager";
 import { StoreSettings } from "@/components/admin/StoreSettings";
 import { DashboardStats } from "@/components/admin/DashboardStats";
+import { CouponManager } from "@/components/admin/CouponManager";
+
+type Store = { id: string; name: string; owner_id: string; order_pin: string | null; chef_pin: string | null; server_pin: string | null; created_at: string };
 
 export default function AdminDashboard() {
-  const [session, setSession] = useState<any>(null);
-  const [stores, setStores] = useState<any[]>([]);
-  const [activeStore, setActiveStore] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [activeStore, setActiveStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [storeName, setStoreName] = useState("");
   const router = useRouter();
@@ -22,6 +26,14 @@ export default function AdminDashboard() {
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
 
   useEffect(() => {
+    const fetchStores = async (userId: string) => {
+      const { data } = await supabase.from("stores").select("*").eq("owner_id", userId).order("created_at", { ascending: true });
+      if (data) {
+        setStores(data);
+      }
+      setLoading(false);
+    };
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (!session) {
@@ -42,14 +54,6 @@ export default function AdminDashboard() {
       authListener.subscription.unsubscribe();
     };
   }, [router]);
-
-  const fetchStores = async (userId: string) => {
-    const { data, error } = await supabase.from("stores").select("*").eq("owner_id", userId).order("created_at", { ascending: true });
-    if (data) {
-      setStores(data);
-    }
-    setLoading(false);
-  };
 
   const createStore = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,6 +175,11 @@ export default function AdminDashboard() {
                 </div>
               </div>
             </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>손님 쿠폰 관리</CardTitle><CardDescription>손님별 쿠폰 계정을 등록하고 금액을 추가 충전합니다.</CardDescription></CardHeader>
+            <CardContent><CouponManager key={activeStore.id} storeId={activeStore.id} /></CardContent>
           </Card>
 
           <Card>

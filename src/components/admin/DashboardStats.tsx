@@ -9,7 +9,7 @@ import { Info } from "lucide-react";
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { fetchCsvOrderItems, buildOrderCsv } from "@/lib/orderCsv";
 
-type DashboardTotals = { totalRevenue: number; totalOrders: number; pendingItems: number; cookedItems: number };
+type DashboardTotals = { totalRevenue: number; totalOrders: number; pendingItems: number; cookedItems: number; couponUsed: number; cashDue: number; cashReceived: number; couponCredited: number };
 
 export function DashboardStats({ storeId }: { storeId: string }) {
   const [stats, setStats] = useState<DashboardTotals | null>(null);
@@ -29,7 +29,7 @@ export function DashboardStats({ storeId }: { storeId: string }) {
         const { data, error } = await supabase.rpc("get_dashboard_totals", { p_store_id: storeId })
           .abortSignal(AbortSignal.timeout(10000));
         if (error) throw error;
-        if (!data || ![data.totalRevenue, data.totalOrders, data.pendingItems, data.cookedItems].every(Number.isFinite)) {
+        if (!data || ![data.totalRevenue, data.totalOrders, data.pendingItems, data.cookedItems, data.couponUsed, data.cashDue, data.cashReceived, data.couponCredited].every(Number.isFinite)) {
           throw new Error("통계 응답을 확인할 수 없습니다.");
         }
         if (active) { setStats(data); setStatsError(false); }
@@ -108,6 +108,12 @@ export function DashboardStats({ storeId }: { storeId: string }) {
         </Dialog>
       </div>
       {statsError && <p className="text-sm text-red-700" role="alert">통계를 갱신하지 못했습니다. 표시된 값은 최신 상태가 아닐 수 있습니다. 자동으로 다시 시도합니다.</p>}
+      <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-lg bg-gray-50 p-3 text-sm">
+        <span>쿠폰 사용 {stats?.couponUsed.toLocaleString() ?? "—"}원</span>
+        <span>주문 현금 {stats?.cashDue.toLocaleString() ?? "—"}원</span>
+        <span>실제 받은 현금 {stats?.cashReceived.toLocaleString() ?? "—"}원</span>
+        <span>초과액 적립 {stats?.couponCredited.toLocaleString() ?? "—"}원</span>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">

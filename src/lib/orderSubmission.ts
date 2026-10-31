@@ -1,8 +1,13 @@
+import type { Customer } from "./couponPayment";
+
 export type PendingOrder = {
   requestId: string;
   storeId: string;
   tableNumber: string;
   paymentMethod: string;
+  customer?: Customer;
+  couponUsed?: number;
+  cashReceived?: number | null;
   items: { menu_id: string; quantity: number; unit_price: number }[];
 };
 
@@ -19,6 +24,12 @@ export function readPendingOrder(storage: Storage, storeId: string): PendingOrde
         || !Number.isInteger(item.quantity) || item.quantity <= 0
         || !Number.isInteger(item.unit_price) || item.unit_price < 0)) {
     throw new Error("미확인 주문 데이터를 읽을 수 없습니다. 관리자에게 접수 상태를 확인해 주세요.");
+  }
+  if (order.customer && (!["외부자", "개척자", "지체 손님"].includes(order.customer.type)
+    || typeof order.customer.name !== "string" || typeof order.customer.member !== "string"
+    || !Number.isSafeInteger(order.couponUsed) || order.couponUsed! < 0
+    || (order.cashReceived !== null && (!Number.isSafeInteger(order.cashReceived) || order.cashReceived! < 0)))) {
+    throw new Error("저장된 손님·결제 정보를 확인할 수 없습니다.");
   }
   return order;
 }
@@ -38,6 +49,11 @@ export function orderRpcArgs(order: PendingOrder) {
     p_table_number: order.tableNumber,
     p_payment_method: order.paymentMethod,
     p_items: order.items,
+    ...(order.customer ? {
+      p_customer_type: order.customer.type, p_customer_name: order.customer.name,
+      p_member_name: order.customer.member, p_coupon_used: order.couponUsed,
+      p_cash_received: order.cashReceived,
+    } : {}),
   };
 }
 

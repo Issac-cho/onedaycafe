@@ -16,6 +16,7 @@ function load(path, dependencies = {}, globals = {}) {
   return exports;
 }
 const helpers = load("./orderSubmission.ts");
+const paymentHelpers = load("./couponPayment.ts");
 function storage() {
   const values = new Map();
   return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) };
@@ -24,7 +25,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 const menu = { id: "menu", name: "커피", price: 3000, category: "음료", kitchen_group: 1, is_sold_out: false };
 const success = { data: { id: "order", order_number: 5 }, error: null };
 
-async function mount(saved = storage(), responses = [success], accepted = true) {
+async function mount(saved = storage(), responses = [success], accepted = true, couponAccount = null) {
   const hooks = [], effects = [], calls = [], alerts = [];
   const cleanups = [];
   const confirmations = [];
@@ -58,10 +59,15 @@ async function mount(saved = storage(), responses = [success], accepted = true) 
     react,
     "@/lib/supabase": { supabase: {
       from(table) { assert.equal(table, "menus", "orders must only be written via the atomic RPC"); return query; },
-      rpc(name, args) { assert.equal(name, "submit_order"); calls.push(args); return responses.shift() ?? success; },
+      rpc(name, args) {
+        if (name === "lookup_coupon_account") return { abortSignal: async () => ({ data: couponAccount, error: null }) };
+        assert.ok(["submit_order", "submit_customer_order"].includes(name)); calls.push(args); return responses.shift() ?? success;
+      },
       channel: () => channel, removeChannel() {},
     } },
     "@/lib/orderSubmission": helpers,
+    "@/lib/couponPayment": paymentHelpers,
+    "@/components/CustomerEntry": { CustomerEntry: "CustomerEntry" },
     "@/components/ui/button": { Button: "button" },
     "@/components/ui/card": Object.fromEntries(["Card", "CardContent", "CardHeader", "CardTitle"].map(name => [name, name])),
     "@/components/ui/input": { Input: "input" },
@@ -73,8 +79,8 @@ async function mount(saved = storage(), responses = [success], accepted = true) 
   };
   const { default: Page } = load("../app/[store_id]/order/page.tsx", dependencies,
     { sessionStorage: saved, crypto: { randomUUID }, alert: message => alerts.push(message), console: { error() {} },
-      window, document, AbortController, setTimeout: () => 1, clearTimeout() {},
-      setInterval(callback, delay) { assert.equal(delay, 5000); poll = callback; return 1; }, clearInterval() {} });
+      window, document, AbortController, AbortSignal, setTimeout: () => 1, clearTimeout() {},
+      setInterval(callback, delay) { if (delay === 5000) poll = callback; return 1; }, clearInterval() {} });
   function render() {
     cursor = 0;
     const tree = Page({ params: Promise.resolve({ store_id: "store" }) });
@@ -91,8 +97,18 @@ async function mount(saved = storage(), responses = [success], accepted = true) 
   render();
   effects.forEach(effect => cleanups.push(effect()));
   await settle();
+  {
+    const entry = render().find(node => node.type === "CustomerEntry");
+    if (entry && !saved.getItem("pending_order_store")) await entry.props.onContinue({ type: "외부자", name: "", member: "" });
+  }
   return {
     render, calls, alerts, saved, confirmations,
+    async customer(person) {
+      render().find(node => node.type === "button" && node.props.children === "손님 변경").props.onClick();
+      await render().find(node => node.type === "CustomerEntry").props.onContinue(person);
+    },
+    payment(value) { render().find(node => node.type === "Select").props.onValueChange(value); },
+    input(id, value) { render().find(node => node.type === "input" && node.props.id === id).props.onChange({ target: { value } }); },
     get fetches() { return fetches; },
     visibility: state => { document.visibilityState = state; },
     async menuChange(menus) { menuResult = { data: menus, error: null }; change(); await settle(); },
@@ -172,7 +188,7 @@ test("corrupted saved requests block new submissions instead of silently losing 
   const saved = storage();
   saved.setItem("pending_order_store", "broken-json");
   const app = await mount(saved);
-  assert.equal(app.render().find(node => node.type === "fieldset").props.disabled, true);
+  assert.equal(app.render().find(node => node.type === "CustomerEntry").props.disabled, true);
   assert.equal(app.calls.length, 0);
 });
 
@@ -256,4 +272,51 @@ test("subscription recovery, browser events and visible polling refresh menus an
   app.cleanup();
   await app.menuChange([menu]);
   assert.equal(app.fetches, before);
+});
+
+
+test("named customer sends coupon choice and received cash, retry preserves both", async () => {
+  const app = await mount(storage(), [{ data: null, error: { message: "lost" } }, success], true, { id: "coupon", balance: 2000 });
+  await app.customer({ type: "개척자", name: "홍길동", member: "" });
+  app.prepare();
+  // 3000원 주문에 잔액 2000원이므로 자동 혼합 결제. 일부 1000원만 사용하고 3000원 수납.
+  app.input("coupon-use", "1000");
+  app.input("cash-received", "3000");
+  await app.submit();
+  assert.equal(app.calls[0].p_customer_name, "홍길동");
+  assert.equal(app.calls[0].p_coupon_used, 1000);
+  assert.equal(app.calls[0].p_cash_received, 3000);
+  assert.equal(app.calls[0].p_payment_method, "쿠폰+현금");
+  assert.ok(app.confirmations[0].details.some(text => text.includes("초과 1,000원")));
+  await app.retry();
+  assert.equal(JSON.stringify(app.calls[0]), JSON.stringify(app.calls[1]));
+  assert.ok(app.render().some(node => node.type === "CustomerEntry"));
+  app.cleanup();
+});
+
+test("anonymous overpayment requires a name; named cash payment allows account creation", async () => {
+  const app = await mount();
+  app.prepare();
+  app.input("cash-received", "5000");
+  await app.submit();
+  assert.equal(app.calls.length, 0);
+  await app.customer({ type: "외부자", name: "외부손님", member: "" });
+  app.input("cash-received", "5000");
+  await app.submit();
+  assert.equal(app.calls[0].p_customer_type, "외부자");
+  assert.equal(app.calls[0].p_cash_received, 5000);
+  assert.equal(app.calls[0].p_coupon_used, 0);
+  app.cleanup();
+});
+
+
+test("legacy pending orders retain their original RPC and payload after upgrade", async () => {
+  const saved = storage();
+  helpers.savePendingOrder(saved, { requestId: randomUUID(), storeId: "store", tableNumber: "기존", paymentMethod: "현금", items: [{ menu_id: "menu", quantity: 1, unit_price: 3000 }] });
+  const app = await mount(saved);
+  await app.retry();
+  assert.equal(app.calls.length, 1);
+  assert.equal("p_customer_type" in app.calls[0], false);
+  assert.equal(helpers.readPendingOrder(saved, "store"), null);
+  app.cleanup();
 });

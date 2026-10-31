@@ -7,7 +7,7 @@ export type CsvOrderItem = {
   quantity: number;
   status: string;
   menu: { name: string; price: number } | null;
-  order: { order_number: number; table_number: string; payment_method: string; created_at: string };
+  order: { id?: string; customer_type?: string | null; customer_name?: string | null; member_name?: string | null; coupon_used?: number | null; cash_due?: number | null; cash_received?: number | null; coupon_credited?: number | null; order_number: number; table_number: string; payment_method: string; created_at: string };
 };
 
 export async function fetchCsvOrderItems(client: SupabaseClient, storeId: string) {
@@ -16,7 +16,7 @@ export async function fetchCsvOrderItems(client: SupabaseClient, storeId: string
     const { data, error } = await client.from("order_items").select(`
       id, menu_name, menu_price, quantity, status,
       menu:menus(name, price),
-      order:orders!inner(order_number, table_number, payment_method, created_at)
+      order:orders!inner(id, order_number, table_number, payment_method, created_at, customer_type, customer_name, member_name, coupon_used, cash_due, cash_received, coupon_credited)
     `).eq("order.store_id", storeId)
       .order("created_at", { ascending: true }).order("id", { ascending: true })
       .range(offset, offset + 499);
@@ -35,14 +35,20 @@ function csvCell(value: string | number) {
 
 export function buildOrderCsv(items: CsvOrderItem[]) {
   const statusNames: Record<string, string> = { pending: "조리 대기", cooked: "서빙 대기", served: "서빙 완료" };
+  const seen = new Set<string | number>();
   const rows = items.map(item => {
     const price = item.menu_price ?? item.menu?.price ?? 0;
+    const key = item.order.id ?? item.order.order_number;
+    const first = !seen.has(key);
+    seen.add(key);
     return [
       new Date(item.order.created_at).toLocaleString("ko-KR"),
       item.order.order_number, item.order.table_number, item.order.payment_method,
       item.menu_name || item.menu?.name || "삭제된 메뉴",
       item.quantity, price, price * item.quantity, statusNames[item.status] ?? item.status,
+      item.order.customer_type ?? "미기록", item.order.customer_name ?? "", item.order.member_name ?? "",
+      ...[item.order.coupon_used, item.order.cash_due, item.order.cash_received, item.order.coupon_credited].map(value => first ? value ?? "" : ""),
     ].map(csvCell).join(",");
   });
-  return "\uFEFF주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,결제금액,상태\r\n" + rows.join("\r\n") + "\r\n";
+  return "\uFEFF주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,결제금액,상태,손님유형,손님이름,지체이름,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행)\r\n" + rows.join("\r\n") + "\r\n";
 }

@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { readPendingOrder, savePendingOrder, clearPendingOrder, orderRpcArgs, isRejectedOrder, type PendingOrder } from "@/lib/orderSubmission";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { useConfirmation } from "@/components/useConfirmation";
+import { CustomerEntry } from "@/components/CustomerEntry";
+import { couponPayment, type Customer, type CouponAccount } from "@/lib/couponPayment";
 import { PinLock } from "@/components/PinLock";
 
 type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean; is_deleted: boolean };
@@ -20,7 +22,15 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   const [menus, setMenus] = useState<Menu[]>([]);
   const [cart, setCart] = useState<{ menu: Menu; quantity: number }[]>([]);
   const [tableNumber, setTableNumber] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("현금");
+  const [paymentSelection, setPaymentMethod] = useState("현금");
+  const [paymentChosen, setPaymentChosen] = useState(false);
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [enteringCustomer, setEnteringCustomer] = useState(true);
+  const [account, setAccount] = useState<CouponAccount | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [cashInput, setCashInput] = useState("");
+  const customerRef = useRef<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -124,6 +134,53 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     };
   }, [store_id]);
 
+  const lookupAccount = async (person: Customer) => {
+    if (!person.name) return null;
+    const { data, error } = await supabase.rpc("lookup_coupon_account", {
+      p_store_id: store_id, p_customer_type: person.type,
+      p_customer_name: person.name, p_member_name: person.member,
+    }).abortSignal(AbortSignal.timeout(10000));
+    if (error) throw error;
+    if (data && (typeof data.id !== "string" || !Number.isSafeInteger(data.balance) || data.balance < 0)) throw new Error("쿠폰 응답 오류");
+    return data as CouponAccount | null;
+  };
+  const startCustomer = async (person: Customer) => {
+    if ((person.type !== "외부자" && !person.name) || (person.type === "지체 손님" && !person.member)) return;
+    try {
+      const found = await lookupAccount(person);
+      customerRef.current = person;
+      setCustomer(person); setAccount(found); setAccountError(null);
+      setCouponInput(""); setCashInput(""); setPaymentChosen(false);
+      setPaymentMethod(found && found.balance > 0 ? "쿠폰" : "현금");
+      setEnteringCustomer(false);
+    } catch {
+      customerRef.current = person;
+      setCustomer(person); setAccount(null);
+      setAccountError("쿠폰 잔액 조회 실패 · 다시 확인해 주세요.");
+      setCouponInput(""); setCashInput(""); setPaymentMethod("현금"); setPaymentChosen(true);
+      setEnteringCustomer(false);
+    }
+  };
+  const refreshAccount = async () => {
+    const person = customerRef.current;
+    if (!person) return;
+    try {
+      const found = await lookupAccount(person);
+      if (customerRef.current === person) { setAccount(found); setAccountError(null); }
+    } catch {
+      if (customerRef.current === person) setAccountError("쿠폰 잔액 조회 실패 · 다시 확인해 주세요.");
+    }
+  };
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === "visible") void refreshAccount(); };
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener("online", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener("online", refresh); };
+    // 잔액 조회는 현재 손님 ref를 사용하며 매장 변경 시 타이머를 교체한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store_id]);
+
   const currentMenus = new Map(menus.map(menu => [menu.id, menu]));
   const cartIssue = (menu: Menu) => {
     const current = currentMenus.get(menu.id);
@@ -162,6 +219,15 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
 
   const totalPrice = cart.reduce((sum, item) => sum + item.menu.price * item.quantity, 0);
 
+  const paymentMethod = paymentChosen ? paymentSelection : (account?.balance ?? 0) > 0 ? (account!.balance >= totalPrice ? "쿠폰" : "쿠폰+현금") : "현금";
+  let payment: ReturnType<typeof couponPayment> | null = null;
+  let paymentError: string | null = null;
+  try {
+    payment = couponPayment(totalPrice, account?.balance ?? 0, paymentMethod, couponInput, cashInput);
+    if (payment.credited > 0 && !customer?.name) paymentError = "초과액을 적립하려면 ‘손님 변경’에서 이름을 입력해 주세요.";
+    if (accountError && (payment.used > 0 || payment.credited > 0)) paymentError = accountError;
+  } catch (error) { paymentError = (error as Error).message; }
+
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (cart.length === 0) {
@@ -174,14 +240,20 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     }
 
     if (restoring || storageError) return;
-    if (submittingRef.current || menuError || hasCartIssue) return;
+    if (submittingRef.current || menuError || hasCartIssue || !customer || enteringCustomer) return;
+    if (!payment || paymentError) { alert(paymentError); return; }
     const accepted = await confirm({
       title: "주문 내용 확인",
       description: "테이블·메뉴·수량·총 결제금액을 확인해 주세요.",
       details: [
+        `${customer.type} · ${customer.member ? customer.member + " / " : ""}${customer.name || "이름 미입력"}`,
         `테이블: ${tableNumber.trim()} · 결제: ${paymentMethod}`,
         ...cart.map(item => `${item.menu.name} × ${item.quantity} · ${(item.menu.price * item.quantity).toLocaleString()}원`),
         `총 결제금액: ${totalPrice.toLocaleString()}원`,
+        `쿠폰 사용: ${payment.used.toLocaleString()}원 · 필요 현금: ${payment.due.toLocaleString()}원`,
+        `받은 현금: ${payment.received.toLocaleString()}원`,
+        ...(payment.credited > 0 ? [`초과 ${payment.credited.toLocaleString()}원을 쿠폰으로 적립합니다.`] : []),
+        `예상 쿠폰 잔액: ${payment.remaining.toLocaleString()}원 (접수 시 최종 확인)`,
       ],
       confirmLabel: `${tableNumber.trim()} 테이블 주문 전송`,
     });
@@ -194,6 +266,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       alert(menuError || "판매 불가 메뉴 또는 변경된 가격을 확인해 주세요.");
       return;
     }
+    if (!pendingOrder && (!customer || enteringCustomer || !payment || paymentError)) return;
     submittingRef.current = true;
     setSubmitting(true);
     try {
@@ -202,18 +275,22 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         storeId: store_id,
         tableNumber: tableNumber.trim(),
         paymentMethod,
+        customer: customer!,
+        couponUsed: payment!.used,
+        cashReceived: paymentMethod === "쿠폰" ? 0 : cashInput === "" ? null : payment!.received,
         items: cart.map(({ menu, quantity }) => ({ menu_id: menu.id, quantity, unit_price: menu.price })),
       };
       // 요청을 보내기 전에 보관해 응답 유실·새로고침 후에도 같은 ID로 재시도한다.
       savePendingOrder(sessionStorage, request);
       setPendingOrder(request);
-      const { data, error } = await supabase.rpc("submit_order", orderRpcArgs(request));
+      const { data, error } = await supabase.rpc(request.customer ? "submit_customer_order" : "submit_order", orderRpcArgs(request));
       if (error) {
         if (isRejectedOrder(error.code)) {
           clearPendingOrder(sessionStorage, store_id);
           setPendingOrder(null);
           refreshMenusRef.current();
-          alert("주문이 접수되지 않았습니다: " + error.message + "\n메뉴를 다시 확인해 주세요.");
+          void refreshAccount();
+          alert("주문이 접수되지 않았습니다: " + error.message + "\n메뉴와 결제 정보를 다시 확인해 주세요.");
         } else {
           alert("접수 결과를 확인하지 못했습니다. ‘접수 확인 / 재시도’를 눌러주세요. 같은 요청은 중복 접수되지 않습니다.");
         }
@@ -224,6 +301,9 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       setPendingOrder(null);
       setCart([]);
       setTableNumber("");
+      customerRef.current = null;
+      setCustomer(null); setAccount(null); setAccountError(null);
+      setCouponInput(""); setCashInput(""); setPaymentMethod("현금"); setPaymentChosen(false); setEnteringCustomer(true);
       alert(`주문이 성공적으로 접수되었습니다!\n\n✨ 주문번호: ${data.order_number}번\n(주문자/손님께 이 번호를 안내해 주세요)`);
     } catch (error) {
       console.error("주문 접수 결과 확인 실패", error);
@@ -253,10 +333,19 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         <div className="md:col-span-3 rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-2" role="status">
           <p className="font-semibold">{submitting ? "주문 접수 확인 중..." : "접수 결과를 확인해야 하는 주문이 있습니다."}</p>
           <p className="text-sm">테이블 {pendingOrder.tableNumber} · {pendingOrder.items.reduce((sum, item) => sum + item.quantity, 0)}개 · {pendingOrder.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0).toLocaleString()}원</p>
+          {pendingOrder.customer && <p className="text-sm">{pendingOrder.customer.type} · {pendingOrder.customer.member} {pendingOrder.customer.name || "이름 미입력"} · {pendingOrder.paymentMethod} · 쿠폰 사용 {(pendingOrder.couponUsed ?? 0).toLocaleString()}원 · 받은 현금 {pendingOrder.cashReceived === null ? "필요 금액과 동일" : `${pendingOrder.cashReceived?.toLocaleString()}원`}</p>}
           <p className="text-sm text-gray-600">아래 버튼으로 먼저 접수 결과를 확인해 주세요. 새로고침해도 이 요청을 이어서 확인합니다.</p>
           <Button type="button" disabled={submitting || restoring || !!storageError} onClick={submitOrder}>접수 확인 / 재시도</Button>
         </div>
       )}
+      {enteringCustomer && !pendingOrder && <div className="md:col-span-3"><CustomerEntry initial={customer} onContinue={startCustomer} disabled={submitting || restoring || !!storageError} /></div>}
+      {(!enteringCustomer || !!pendingOrder) && <>
+      {customer && <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50 p-3">
+        <div><p className="font-semibold">{customer.type} · {customer.member && `${customer.member} / `}{customer.name || "이름 미입력"}</p>
+          <p className="text-sm">{accountError ? accountError : account ? `쿠폰 잔액 ${account.balance.toLocaleString()}원` : customer.name ? "등록된 쿠폰 정보 없음" : "쿠폰 적립 시 이름이 필요합니다."}</p></div>
+        <div className="flex gap-2"><Button type="button" variant="ghost" disabled={submitting || !!pendingOrder} onClick={() => void refreshAccount()}>잔액 확인</Button>
+        <Button type="button" variant="outline" disabled={submitting || !!pendingOrder} onClick={() => { customerRef.current = null; setEnteringCustomer(true); setCouponInput(""); setCashInput(""); setPaymentMethod("현금"); }}>손님 변경</Button></div>
+      </div>}
       <fieldset disabled={submitting || !!pendingOrder || restoring || !!storageError} className="contents">
       {/* Menu List */}
       <div className="md:col-span-2 space-y-6">
@@ -299,8 +388,8 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
           <CardHeader className="bg-primary text-primary-foreground rounded-t-xl">
             <CardTitle>장바구니</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 flex flex-col h-[calc(100vh-10rem)] max-h-[600px]">
-            <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+          <CardContent className="p-4 flex flex-col max-h-[calc(100dvh-2rem)] overflow-y-auto">
+            <div className="max-h-64 overflow-y-auto space-y-4 pr-2">
               {cart.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">장바구니가 비어있습니다.</p>
               ) : (
@@ -347,21 +436,26 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                 
                 <div className="space-y-2">
                   <Label>결제 방식</Label>
-                  <Select value={paymentMethod} onValueChange={(val) => setPaymentMethod(val || "현금")}>
+                  <Select value={paymentMethod} onValueChange={(val) => { setPaymentMethod(val || "현금"); setPaymentChosen(true); setCouponInput(""); setCashInput(""); }}>
                     <SelectTrigger>
                       <SelectValue placeholder="결제 방식을 선택하세요" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="현금">현금결제 (계좌이체 등)</SelectItem>
-                      <SelectItem value="쿠폰">쿠폰결제 (선결제 티켓)</SelectItem>
+                      <SelectItem value="쿠폰" disabled={!account || !!accountError || account.balance < totalPrice}>쿠폰</SelectItem>
+                      <SelectItem value="현금">현금 (계좌이체 등)</SelectItem>
+                      <SelectItem value="쿠폰+현금" disabled={!account || !!accountError || account.balance <= 0}>쿠폰+현금</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <Button 
+                {paymentMethod === "쿠폰+현금" && <div className="space-y-2"><Label htmlFor="coupon-use">쿠폰 사용액 (원)</Label><Input id="coupon-use" inputMode="numeric" value={couponInput} placeholder={String(Math.min(totalPrice, account?.balance ?? 0))} onChange={e => setCouponInput(e.target.value)} /><p className="text-xs text-gray-500">미입력 시 쿠폰을 최대한 사용합니다.</p></div>}
+                {paymentMethod !== "쿠폰" && <div className="space-y-2"><Label htmlFor="cash-received">받은 현금 (선택 · 원)</Label><Input id="cash-received" inputMode="numeric" value={cashInput} placeholder={payment ? String(payment.due) : "필요한 현금액"} onChange={e => setCashInput(e.target.value)} /><p className="text-xs text-gray-500">미입력 시 필요한 금액을 받은 것으로 처리합니다. 초과액은 쿠폰으로 적립합니다.</p></div>}
+                {payment && <div className="rounded bg-gray-50 p-3 text-sm space-y-1"><p>쿠폰 사용 {payment.used.toLocaleString()}원 · 필요 현금 {payment.due.toLocaleString()}원</p>{payment.credited > 0 && <p className="font-semibold text-blue-700">쿠폰 적립 +{payment.credited.toLocaleString()}원</p>}<p>예상 쿠폰 잔액 {payment.remaining.toLocaleString()}원</p></div>}
+                {paymentError && <p role="alert" className="text-sm text-red-700">{paymentError}</p>}
+                <Button
                   type="submit" 
                   className="w-full text-lg h-12" 
-                  disabled={submitting || !!pendingOrder || restoring || !!storageError || !!menuError || hasCartIssue || cart.length === 0}
+                  disabled={submitting || !!pendingOrder || restoring || !!storageError || !!menuError || hasCartIssue || !!paymentError || cart.length === 0}
                 >
                   {submitting ? "주문 전송 중..." : "주문 및 결제 완료"}
                 </Button>
@@ -371,6 +465,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         </Card>
       </div>
       </fieldset>
+      </>}
     </div>
     {confirmationDialog}
     </PinLock>

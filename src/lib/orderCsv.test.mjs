@@ -59,3 +59,11 @@ test("CSV preserves snapshots, escapes quotes and multiline text, and handles le
   assert.ok(csv.includes('"\'=1+1"'));
   assert.ok(csv.includes('"기존 메뉴",2,2500,5000,'));
 });
+
+test("order coupon and cash totals occur only on the first menu row", () => {
+  const order = { ...row(0).order, id: "order", customer_type: "외부자", customer_name: "홍길동",
+    coupon_used: 1000, cash_due: 11000, cash_received: 15000, coupon_credited: 4000 };
+  const lines = buildOrderCsv([{ ...row(0), order }, { ...row(1), order }]).split("\r\n");
+  assert.ok(lines[1].endsWith('1000,11000,15000,4000'));
+  assert.ok(lines[2].endsWith('"","","",""'));
+});

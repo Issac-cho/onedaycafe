@@ -10,6 +10,7 @@ import { useOrderQueue } from "@/lib/useOrderQueue";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { useConfirmation } from "@/components/useConfirmation";
 import { PinLock } from "@/components/PinLock";
+import { KitchenHistory } from "@/components/KitchenHistory";
 
 export default function ChefPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
@@ -53,6 +54,8 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
         <h1 className="text-2xl font-bold flex items-center gap-2">
           👨‍🍳 주방 현황판
         </h1>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+        <KitchenHistory storeId={store_id} kitchenGroup={kitchenGroup} />
         <div className="flex items-center gap-2 bg-white/10 p-2 rounded">
           <Label htmlFor="kitchenGroup" className="whitespace-nowrap text-white">담당 구역(그룹):</Label>
           <Input 
@@ -62,6 +65,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
             onChange={(e) => setKitchenGroup(e.target.value)} 
             className="w-20 text-white"
           />
+        </div>
         </div>
       </div>
 

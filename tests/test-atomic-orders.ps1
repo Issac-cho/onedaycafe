@@ -79,7 +79,9 @@ END; $$;
     [IO.File]::WriteAllText("$testRoot\coupon-assertions.sql", "\encoding UTF8`n$couponAssertions", [Text.UTF8Encoding]::new($false))
     & (Join-Path $pgBin 'psql.exe') @psqlArgs -f "$testRoot\coupon-assertions.sql"
     if ($LASTEXITCODE -ne 0) { throw 'coupon concurrency assertions failed' }
-    Write-Output 'Order, menu history and coupon tests passed.'
+    & (Join-Path $pgBin 'psql.exe') @psqlArgs -f (Join-Path $PSScriptRoot 'kitchen-history.sql')
+    if ($LASTEXITCODE -ne 0) { throw 'kitchen history timestamp tests failed' }
+    Write-Output 'Order, menu history, coupon and kitchen completion history tests passed.'
 } finally {
     if ($started) {
         & (Join-Path $pgBin 'pg_ctl.exe') -D $testRoot -m fast -w stop | Out-Null

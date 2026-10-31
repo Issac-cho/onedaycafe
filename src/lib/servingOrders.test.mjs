@@ -55,6 +55,7 @@ function page(items, remaining = 0, conflict = false, role = "server", accepted 
     "@/components/ui/card": { Card: "section", CardContent: "article" },
     "@/components/QueueConnectionStatus": { QueueConnectionStatus: "aside" },
     "@/components/PinLock": { PinLock: "main" },
+    "@/components/KitchenHistory": { KitchenHistory: "KitchenHistory" },
     "@/components/useConfirmation": { useConfirmation: () => ({ confirm: async message => { confirmations.push(message); return accepted; }, confirmationDialog: null }) },
   }, { alert: message => alerts.push(message), console });
   const tree = Page({ params: Promise.resolve({ store_id: "store" }) });

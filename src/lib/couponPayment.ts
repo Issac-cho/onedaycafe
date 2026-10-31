@@ -1,5 +1,5 @@
 export type Customer = { type: "외부자" | "개척자" | "지체 손님"; name: string; member: string };
-export type CouponAccount = { id: string; balance: number };
+export type CouponAccount = { id: string; balance: number; member_name?: string };
 
 export function parseWon(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;

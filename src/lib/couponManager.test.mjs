@@ -13,10 +13,10 @@ function load(path, dependencies = {}, globals = {}) {
   vm.runInNewContext(code, { exports, require: name => dependencies[name] ?? require(name), ...globals });
   return exports;
 }
-async function mount(responses = [], saved = new Map()) {
-  const hooks = [], effects = [], calls = [], alerts = [];
+async function mount(responses = [], saved = new Map(), accountOverrides = {}) {
+  const hooks = [], effects = [], calls = [], metadataCalls = [], alerts = [];
   let cursor = 0;
-  const account = { id: "account", customer_type: "개척자", customer_name: "홍길동", member_name: "", balance: 20000 };
+  const account = { id: "account", customer_type: "개척자", customer_name: "홍길동", member_name: "", balance: 20000, ...accountOverrides };
   const query = { select() { return this; }, eq() { return this; }, order() { return this; }, range() { return this; },
     abortSignal: async () => ({ data: [account], error: null }) };
   const react = {
@@ -27,6 +27,7 @@ async function mount(responses = [], saved = new Map()) {
   const dependencies = { react, "@/lib/couponPayment": load("./couponPayment.ts"), "@/lib/orderSubmission": load("./orderSubmission.ts"),
     "@/lib/supabase": { supabase: { from: () => query, rpc(name, args) {
       if (name === "get_coupon_admin_totals") return { abortSignal: async () => ({ data: { registered: 20000, charged: 0 }, error: null }) };
+      if (name === "set_coupon_member_name") { metadataCalls.push(args); return { abortSignal: async () => ({ data: null, error: null }) }; }
       assert.equal(name, "manage_coupon_account"); calls.push(args);
       return { abortSignal: async () => responses.shift() ?? { data: { id: "account", balance: 30000 }, error: null } };
     } } },
@@ -43,7 +44,7 @@ async function mount(responses = [], saved = new Map()) {
     visit(CouponManager({ storeId: "store" })); return nodes;
   }
   render(); effects.forEach(effect => effect()); await new Promise(resolve => setImmediate(resolve));
-  return { calls, alerts, saved, render,
+  return { calls, metadataCalls, alerts, saved, render,
     input(id, value) { render().find(n => n.props.id === id).props.onChange({ target: { value } }); },
     select() { render().find(n => n.type === "button" && n.props.children === "추가 충전").props.onClick(); },
     submit: () => render().find(n => n.type === "form").props.onSubmit({ preventDefault() {} }),
@@ -76,13 +77,22 @@ test("invalid charge and corrupt pending storage cannot submit", async () => {
   await corrupt.submit(); assert.equal(corrupt.calls.length, 0);
 });
 
-test("guest account registration has only a guest name field", async () => {
+test("guest registration keeps the guest name as identity and stores the member as display information", async () => {
   const app = await mount();
   app.render().find(n => n.type === "button" && n.props.children === "지체 손님").props.onClick();
-  assert.ok(!app.render().some(n => n.props.id === "admin-member"));
+  app.input("admin-member", "홍지체");
   app.input("admin-customer", "손님이름"); app.input("admin-amount", "10000");
   await app.submit();
   assert.equal(app.calls[0].p_customer_type, "지체 손님");
   assert.equal(app.calls[0].p_customer_name, "손님이름");
-  assert.equal(app.calls[0].p_member_name, "");
+  assert.equal(app.calls[0].p_member_name, "홍지체");
+});
+
+test("updating the member display does not register an account or charge coupons", async () => {
+  const app = await mount([], new Map(), { customer_type: "지체 손님", member_name: "기존지체" });
+  app.select(); app.input("admin-member", "새지체");
+  await app.render().find(n => n.type === "button" && n.props.children === "지체 이름 저장").props.onClick();
+  assert.equal(app.calls.length, 0);
+  assert.equal(app.metadataCalls[0].p_account_id, "account");
+  assert.equal(app.metadataCalls[0].p_member_name, "새지체");
 });

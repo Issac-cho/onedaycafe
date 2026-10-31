@@ -321,13 +321,14 @@ test("legacy pending orders retain their original RPC and payload after upgrade"
   app.cleanup();
 });
 
-test("guest orders require only the guest name, without a member name", async () => {
-  const app = await mount();
+test("guest orders display stored type and member without staff entering a member name", async () => {
+  const app = await mount(storage(), [success], true, { id: "account", balance: 0, member_name: "홍지체" });
   await app.customer({ type: "지체 손님", name: "손님이름", member: "" });
+  assert.ok(app.render().some(n => n.type === "p" && JSON.stringify(n.props.children).includes("지체: 홍지체")));
   app.prepare();
   await app.submit();
   assert.equal(app.calls[0].p_customer_type, "지체 손님");
   assert.equal(app.calls[0].p_customer_name, "손님이름");
-  assert.equal(app.calls[0].p_member_name, "");
+  assert.equal(app.calls[0].p_member_name, "홍지체");
   app.cleanup();
 });

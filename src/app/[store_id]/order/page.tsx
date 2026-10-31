@@ -148,8 +148,9 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     if ((person.type !== "외부자" && !person.name)) return;
     try {
       const found = await lookupAccount(person);
-      customerRef.current = person;
-      setCustomer(person); setAccount(found); setAccountError(null);
+      const resolved = { ...person, member: found?.member_name ?? person.member };
+      customerRef.current = resolved;
+      setCustomer(resolved); setAccount(found); setAccountError(null);
       setCouponInput(""); setCashInput(""); setPaymentChosen(false);
       setPaymentMethod(found && found.balance > 0 ? "쿠폰" : "현금");
       setEnteringCustomer(false);
@@ -246,7 +247,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       title: "주문 내용 확인",
       description: "테이블·메뉴·수량·총 결제금액을 확인해 주세요.",
       details: [
-        `${customer.type} · ${customer.name || "이름 미입력"}`,
+        `${customer.type} · ${customer.name || "이름 미입력"}${customer.type === "지체 손님" ? ` · 지체: ${customer.member || "미등록"}` : ""}`,
         `테이블: ${tableNumber.trim()} · 결제: ${paymentMethod}`,
         ...cart.map(item => `${item.menu.name} × ${item.quantity} · ${(item.menu.price * item.quantity).toLocaleString()}원`),
         `총 결제금액: ${totalPrice.toLocaleString()}원`,
@@ -338,10 +339,10 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
           <Button type="button" disabled={submitting || restoring || !!storageError} onClick={submitOrder}>접수 확인 / 재시도</Button>
         </div>
       )}
-      {enteringCustomer && !pendingOrder && <div className="md:col-span-3"><CustomerEntry initial={customer} onContinue={startCustomer} disabled={submitting || restoring || !!storageError} /></div>}
+      {enteringCustomer && !pendingOrder && <div className="md:col-span-3"><CustomerEntry storeId={store_id} initial={customer} onContinue={startCustomer} disabled={submitting || restoring || !!storageError} /></div>}
       {(!enteringCustomer || !!pendingOrder) && <>
       {customer && <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50 p-3">
-        <div><p className="font-semibold">{customer.type} · {customer.name || "이름 미입력"}</p>
+        <div><p className="font-semibold">{customer.type} · {customer.name || "이름 미입력"}{customer.type === "지체 손님" && ` · 지체: ${customer.member || "미등록"}`}</p>
           <p className="text-sm">{accountError ? accountError : account ? `쿠폰 잔액 ${account.balance.toLocaleString()}원` : customer.name ? "등록된 쿠폰 정보 없음" : "쿠폰 적립 시 이름이 필요합니다."}</p></div>
         <div className="flex gap-2"><Button type="button" variant="ghost" disabled={submitting || !!pendingOrder} onClick={() => void refreshAccount()}>잔액 확인</Button>
         <Button type="button" variant="outline" disabled={submitting || !!pendingOrder} onClick={() => { customerRef.current = null; setEnteringCustomer(true); setCouponInput(""); setCashInput(""); setPaymentMethod("현금"); }}>손님 변경</Button></div>

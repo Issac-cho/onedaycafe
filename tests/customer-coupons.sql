@@ -4,6 +4,7 @@
 INSERT INTO public.coupon_accounts(store_id,customer_type,customer_name,member_name,balance)
 VALUES('00000000-0000-0000-0000-000000000002','지체 손님','기존손님','기존지체',1234);
 \ir ../migrations/20261031_guest_name_only.sql
+\ir ../migrations/20261031_friend_customer_entry.sql
 BEGIN;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql AS
   'SELECT nullif(current_setting(''test.uid'',true),'''')::uuid';
@@ -25,6 +26,10 @@ BEGIN
   PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님','',0,true);
   PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님2','',0,true);
   ASSERT (public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','기존손님','')->>'balance')::bigint=1234;
+  ASSERT public.find_friend_accounts('00000000-0000-0000-0000-000000000002','기존손님')->0->>'member_name'='기존지체';
+  PERFORM public.set_coupon_member_name((public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님','')->>'id')::uuid,'홍지체');
+  ASSERT public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님','')->>'member_name'='홍지체';
+  ASSERT (public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님','')->>'balance')::bigint=0;
   BEGIN
     PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님','다른지체',0,true);
     RAISE EXCEPTION '지체가 다르다는 이유로 손님 이름 중복 허용';
@@ -37,6 +42,10 @@ DO $$ BEGIN
   BEGIN
     PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','개척자','홍길동','',1000,false);
     RAISE EXCEPTION '다른 관리자 충전 허용';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+  BEGIN
+    PERFORM public.set_coupon_member_name((public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님','')->>'id')::uuid,'잘못된수정');
+    RAISE EXCEPTION '다른 관리자 지체 이름 수정 허용';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END; $$;
 RESET ROLE;
@@ -54,6 +63,7 @@ BEGIN
   -- 외부자 적립액을 다음 주문에서 사용. 현금 빈값은 필요액을 수납.
   PERFORM public.submit_customer_order(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','외부자2','쿠폰+현금',items,'외부자','새손님','',4000,NULL);
   ASSERT (public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','외부자','새손님','')->>'balance')::bigint=0;
+  PERFORM public.submit_customer_order(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체표시','현금',items,'지체 손님','손님','잘못된클라이언트값',0,NULL);
   SELECT count(*) INTO before_count FROM public.orders;
   BEGIN
     PERFORM public.submit_customer_order(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','부족','쿠폰',items,'외부자','새손님','',6000,0);
@@ -76,6 +86,7 @@ END; $$;
 RESET ROLE;
 DO $$ BEGIN
   ASSERT (SELECT coupon_credited FROM public.orders WHERE table_number='쿠폰테스트')=3000;
+  ASSERT (SELECT member_name FROM public.orders WHERE table_number='지체표시')='홍지체';
   ASSERT (SELECT count(*) FROM public.coupon_transactions WHERE kind='사용')=2;
   ASSERT (SELECT count(*) FROM public.coupon_transactions WHERE kind='초과액 적립')=2;
   ASSERT (public.get_dashboard_totals('00000000-0000-0000-0000-000000000002')->>'couponUsed')::bigint=8000;

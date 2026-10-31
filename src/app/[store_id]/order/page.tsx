@@ -385,8 +385,8 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
 
       {/* Cart & Checkout */}
       <div className="md:col-span-1">
-        <Card className="sticky top-4">
-          <CardHeader className="bg-primary text-primary-foreground rounded-t-xl">
+        <Card className="sticky top-4 gap-0 py-0">
+          <CardHeader className="rounded-none bg-primary px-4 py-3 text-primary-foreground">
             <CardTitle>장바구니</CardTitle>
           </CardHeader>
           <CardContent className="p-4 flex flex-col max-h-[calc(100dvh-2rem)] overflow-y-auto">

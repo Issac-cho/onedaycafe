@@ -118,6 +118,21 @@
 }
 
 @layer base {
+  /* 실제 스크롤 영역에만 적용한다. overflow-hidden 카드까지 막으면 바깥 스크롤이 갇힌다. */
+  :where(
+    html,
+    body,
+    .overflow-auto,
+    .overflow-x-auto,
+    .overflow-y-auto,
+    .overflow-scroll,
+    .overflow-x-scroll,
+    .overflow-y-scroll,
+    [data-slot="select-content"]
+  ) {
+    overscroll-behavior: none;
+  }
+
   * {
     @apply border-border outline-ring/50;
   }

@@ -16,7 +16,7 @@ export async function fetchCsvOrderItems(client: SupabaseClient, storeId: string
     const { data, error } = await client.from("order_items").select(`
       id, menu_name, menu_price, quantity, status,
       menu:menus(name, price),
-      order:orders!inner(id, order_number, table_number, payment_method, created_at, customer_type, customer_name, member_name, coupon_used, cash_due, cash_received, coupon_credited)
+      order:orders!inner(id, order_number, table_number, payment_method, created_at, customer_type, customer_name, coupon_used, cash_due, cash_received, coupon_credited)
     `).eq("order.store_id", storeId)
       .order("created_at", { ascending: true }).order("id", { ascending: true })
       .range(offset, offset + 499);
@@ -46,9 +46,9 @@ export function buildOrderCsv(items: CsvOrderItem[]) {
       item.order.order_number, item.order.table_number, item.order.payment_method,
       item.menu_name || item.menu?.name || "삭제된 메뉴",
       item.quantity, price, price * item.quantity, statusNames[item.status] ?? item.status,
-      item.order.customer_type ?? "미기록", item.order.customer_name ?? "", item.order.member_name ?? "",
+      item.order.customer_type ?? "미기록", item.order.customer_name ?? "",
       ...[item.order.coupon_used, item.order.cash_due, item.order.cash_received, item.order.coupon_credited].map(value => first ? value ?? "" : ""),
     ].map(csvCell).join(",");
   });
-  return "\uFEFF주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,결제금액,상태,손님유형,손님이름,지체이름,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행)\r\n" + rows.join("\r\n") + "\r\n";
+  return "\uFEFF주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,결제금액,상태,손님유형,손님이름,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행)\r\n" + rows.join("\r\n") + "\r\n";
 }

@@ -1,6 +1,9 @@
 \encoding UTF8
 \set ON_ERROR_STOP on
 \ir ../migrations/20261031_customer_coupons.sql
+INSERT INTO public.coupon_accounts(store_id,customer_type,customer_name,member_name,balance)
+VALUES('00000000-0000-0000-0000-000000000002','지체 손님','기존손님','기존지체',1234);
+\ir ../migrations/20261031_guest_name_only.sql
 BEGIN;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql AS
   'SELECT nullif(current_setting(''test.uid'',true),'''')::uuid';
@@ -19,8 +22,13 @@ BEGIN
     PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','개척자','홍길동','',0,true);
     RAISE EXCEPTION '중복 이름 허용';
   EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
-  PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님','지체A',0,true);
-  PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님','지체B',0,true);
+  PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님','',0,true);
+  PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님2','',0,true);
+  ASSERT (public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','기존손님','')->>'balance')::bigint=1234;
+  BEGIN
+    PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','손님','다른지체',0,true);
+    RAISE EXCEPTION '지체가 다르다는 이유로 손님 이름 중복 허용';
+  EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
 END; $$;
 RESET ROLE;
 SELECT set_config('test.uid','00000000-0000-0000-0000-000000000099',false);

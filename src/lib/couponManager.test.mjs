@@ -75,3 +75,14 @@ test("invalid charge and corrupt pending storage cannot submit", async () => {
   assert.equal(corrupt.render().find(n => n.type === "fieldset").props.disabled, true);
   await corrupt.submit(); assert.equal(corrupt.calls.length, 0);
 });
+
+test("guest account registration has only a guest name field", async () => {
+  const app = await mount();
+  app.render().find(n => n.type === "button" && n.props.children === "지체 손님").props.onClick();
+  assert.ok(!app.render().some(n => n.props.id === "admin-member"));
+  app.input("admin-customer", "손님이름"); app.input("admin-amount", "10000");
+  await app.submit();
+  assert.equal(app.calls[0].p_customer_type, "지체 손님");
+  assert.equal(app.calls[0].p_customer_name, "손님이름");
+  assert.equal(app.calls[0].p_member_name, "");
+});

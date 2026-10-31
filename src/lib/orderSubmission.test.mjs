@@ -320,3 +320,14 @@ test("legacy pending orders retain their original RPC and payload after upgrade"
   assert.equal(helpers.readPendingOrder(saved, "store"), null);
   app.cleanup();
 });
+
+test("guest orders require only the guest name, without a member name", async () => {
+  const app = await mount();
+  await app.customer({ type: "지체 손님", name: "손님이름", member: "" });
+  app.prepare();
+  await app.submit();
+  assert.equal(app.calls[0].p_customer_type, "지체 손님");
+  assert.equal(app.calls[0].p_customer_name, "손님이름");
+  assert.equal(app.calls[0].p_member_name, "");
+  app.cleanup();
+});

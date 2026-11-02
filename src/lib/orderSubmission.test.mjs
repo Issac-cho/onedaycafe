@@ -67,6 +67,7 @@ async function mount(saved = storage(), responses = [success], accepted = true, 
     } },
     "@/lib/orderSubmission": helpers,
     "@/lib/couponPayment": paymentHelpers,
+    "@/lib/menuSets": load("./menuSets.ts"),
     "@/components/CustomerEntry": { CustomerEntry: "CustomerEntry" },
     "@/components/ui/button": { Button: "button" },
     "@/components/ui/card": Object.fromEntries(["Card", "CardContent", "CardHeader", "CardTitle"].map(name => [name, name])),
@@ -330,5 +331,35 @@ test("guest orders display stored type and member without staff entering a membe
   assert.equal(app.calls[0].p_customer_type, "지체 손님");
   assert.equal(app.calls[0].p_customer_name, "손님이름");
   assert.equal(app.calls[0].p_member_name, "홍지체");
+  app.cleanup();
+});
+
+test("set checkout sends its fixed composition, blocks sold-out components and preserves pending retries", async () => {
+  const app = await mount(storage(), [{ data: null, error: { message: "lost" } }, success]);
+  const cola = { ...menu, id: "cola", name: "콜라", price: 0, menu_type: "component" };
+  const set = { ...menu, name: "콜라 2개", price: 5000, menu_type: "set", set_components: [{ menu_id: "cola", quantity: 2 }] };
+  await app.menuChange([set, cola]);
+  assert.equal(app.render().filter(node => node.type === "Card" && node.props.onClick).length, 1);
+  app.prepare();
+  await app.menuChange([set, { ...cola, is_sold_out: true }]);
+  await app.submit(); assert.equal(app.calls.length, 0);
+  await app.menuChange([set, cola]);
+  await app.submit();
+  assert.equal(app.calls[0].p_items[0].unit_price, 5000);
+  assert.equal(app.calls[0].p_items[0].components[0].quantity, 2);
+  await app.retry();
+  assert.equal(JSON.stringify(app.calls[0]), JSON.stringify(app.calls[1]));
+  app.cleanup();
+});
+
+test("changed set composition needs an explicit cart update before checkout", async () => {
+  const app = await mount();
+  const cola = { ...menu, id: "cola", name: "콜라", menu_type: "component" };
+  const set = { ...menu, name: "음료 세트", menu_type: "set", set_components: [{ menu_id: "cola", quantity: 1 }] };
+  await app.menuChange([set, cola]); app.prepare();
+  await app.menuChange([{ ...set, set_components: [{ menu_id: "cola", quantity: 2 }] }, cola]);
+  await app.submit(); assert.equal(app.calls.length, 0);
+  app.render().find(node => node.type === "button" && node.props.children === "변경 구성 적용").props.onClick();
+  await app.submit(); assert.equal(app.calls[0].p_items[0].components[0].quantity, 2);
   app.cleanup();
 });

@@ -8,6 +8,8 @@ export type KitchenHistoryItem = {
   cooked_at: string | null;
   created_at: string;
   menu_name: string | null;
+  set_name?: string | null;
+  sale_quantity?: number | null;
   menu: { name: string; kitchen_group: number };
   order: { order_number: number; table_number: string };
 };
@@ -18,7 +20,7 @@ export async function fetchKitchenHistory(client: SupabaseClient, storeId: strin
   // 조회 중 새 완료가 추가되어도 같은 항목을 두 번 표시하지 않는다.
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await client.from("order_items").select(`
-      id, quantity, served_quantity, status, cooked_at, created_at, menu_name,
+      id, quantity, served_quantity, status, cooked_at, created_at, menu_name, set_name, sale_quantity,
       menu:menus!inner(name, kitchen_group),
       order:orders!inner(order_number, table_number)
     `).eq("order.store_id", storeId).eq("menu.store_id", storeId)

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Customer } from "@/lib/couponPayment";
+import { customerTypeLabel, type Customer } from "@/lib/couponPayment";
 import { supabase } from "@/lib/supabase";
 
 type Friend = { id: string; customer_type: "개척자" | "지체 손님"; customer_name: string; member_name: string };
@@ -39,7 +39,7 @@ export function CustomerEntry({ storeId, initial, onContinue, disabled }: { stor
     <h1 className="text-2xl font-bold">손님 정보</h1>
     <fieldset disabled={busy || disabled} className="space-y-5">
       <div className="flex gap-2">{(["외부자", "지인"] as const).map(value =>
-        <Button key={value} type="button" variant={type === value ? "default" : "outline"} aria-pressed={type === value} onClick={() => { setType(value); setName(""); setMatches([]); setError(null); }}>{value}</Button>)}</div>
+        <Button key={value} type="button" variant={type === value ? "default" : "outline"} aria-pressed={type === value} onClick={() => { setType(value); setName(""); setMatches([]); setError(null); }}>{customerTypeLabel(value)}</Button>)}</div>
       <div className="space-y-2"><Label htmlFor="customer-name">손님 이름{type === "외부자" ? " (선택)" : ""}</Label><Input id="customer-name" value={name} onChange={e => { setName(e.target.value); setMatches([]); setError(null); }} required={type !== "외부자"} maxLength={100} /></div>
       <p className="text-sm text-gray-500">등록된 이름을 정확히 입력해 주세요. 동명이인은 홍길동2처럼 구분된 이름을 사용합니다.</p>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}

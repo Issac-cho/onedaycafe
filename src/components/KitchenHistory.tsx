@@ -56,6 +56,7 @@ export function KitchenHistory({ storeId, kitchenGroup }: { storeId: string; kit
         : <ul className="space-y-3">{items.slice(0, visible).map(item => <li key={item.id} className="rounded-lg border p-3 space-y-1">
           <div className="flex flex-wrap justify-between gap-1"><p className="font-semibold">주문 {item.order.order_number}번 · 테이블 {item.order.table_number}</p><span className="text-xs text-gray-500">{item.served_quantity === item.quantity ? "서빙 완료" : `서빙 ${item.served_quantity}/${item.quantity}`}</span></div>
           <p>{item.menu_name || item.menu.name} × {item.quantity}</p>
+          {item.set_name && <p className="text-xs text-blue-700">{item.set_name} × {item.sale_quantity} 구성품</p>}
           <p className="text-xs text-gray-500">{item.cooked_at ? `조리 완료 ${new Date(item.cooked_at).toLocaleString("ko-KR")}` : `완료 시각 미기록 · 접수 ${new Date(item.created_at).toLocaleString("ko-KR")}`}</p>
         </li>)}</ul>}
       {!loading && !error && visible < items.length && <Button type="button" variant="outline" onClick={() => setVisible(value => value + 50)}>이전 내역 더 보기 ({items.length - visible}건 남음)</Button>}

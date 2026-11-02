@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Label } from "@/components/ui/label";
 
-type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean };
+import { SetComponentsEditor } from "@/components/admin/SetComponentsEditor";
+import { setDescription, type SetMenu as Menu, type SetComponent } from "@/lib/menuSets";
 
 export function MenuManager({ storeId }: { storeId: string }) {
   const [menus, setMenus] = useState<Menu[]>([]);
@@ -18,18 +19,25 @@ export function MenuManager({ storeId }: { storeId: string }) {
   const [price, setPrice] = useState("");
   const [category, setCategory] = useState("식사");
   const [kitchenGroup, setKitchenGroup] = useState("1");
+  const [menuType, setMenuType] = useState<"single" | "component" | "set">("single");
+  const [components, setComponents] = useState<SetComponent[]>([]);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const resetForm = () => { setName(""); setPrice(""); setComponents([]); setEditing(null); setMenuType("single"); };
 
   const fetchMenus = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("menus")
-      .select("*")
-      .eq("store_id", storeId)
-      .eq("is_deleted", false)
-      .order("created_at", { ascending: false });
-    
-    if (error) alert("메뉴 조회 실패: " + error.message);
-    else if (data) setMenus(data);
+    try {
+      const rows: Menu[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase.from("menus").select("*").eq("store_id", storeId)
+          .eq("is_deleted", false).order("created_at", { ascending: false }).order("id").range(offset, offset + 499);
+        if (error) throw error;
+        rows.push(...data);
+        if (data.length < 500) break;
+      }
+      setMenus(rows);
+    } catch { alert("메뉴 목록을 조회하지 못했습니다. 다시 시도해 주세요."); }
     setLoading(false);
   }, [storeId]);
 
@@ -39,23 +47,25 @@ export function MenuManager({ storeId }: { storeId: string }) {
 
   const handleAddMenu = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { error } = await supabase.from("menus").insert([
-      {
-        store_id: storeId,
-        name,
-        price: parseInt(price),
-        category,
-        kitchen_group: parseInt(kitchenGroup),
-      }
-    ]);
-
-    if (error) {
-      alert("메뉴 추가 실패: " + error.message);
-    } else {
-      setName("");
-      setPrice("");
-      fetchMenus();
+    if (saving) return;
+    const amount = menuType === "component" ? 0 : Number(price);
+    if (!name.trim() || !Number.isInteger(amount) || amount < 0 || amount > 1000000000
+      || (menuType !== "set" && (!Number.isInteger(Number(kitchenGroup)) || Number(kitchenGroup) < 1))
+      || (menuType === "set" && (!components.length || components.some(part => !Number.isInteger(part.quantity) || part.quantity < 1 || part.quantity > 1000)))) {
+      alert("메뉴 이름·가격·주방·구성품 수량을 확인해 주세요."); return;
     }
+    setSaving(true);
+    try {
+      const fields = { name: name.trim(), price: amount, category, kitchen_group: menuType === "set" ? 1 : Number(kitchenGroup),
+        menu_type: menuType, set_components: menuType === "set" ? components : [] };
+      const query = editing ? supabase.from("menus").update(fields).eq("id", editing).eq("store_id", storeId).eq("is_deleted", false)
+        : supabase.from("menus").insert([{ ...fields, store_id: storeId }]);
+      const { data, error } = await query.select("id");
+      if (error) throw error;
+      if (!data?.length) throw new Error("메뉴를 저장하지 못했습니다.");
+      resetForm(); await fetchMenus();
+    } catch (error) { alert("메뉴 저장 실패: " + (error instanceof Error ? error.message : "입력 정보를 확인해 주세요.")); }
+    finally { setSaving(false); }
   };
 
   const toggleSoldOut = async (menuId: string, currentStatus: boolean) => {
@@ -86,6 +96,7 @@ export function MenuManager({ storeId }: { storeId: string }) {
   return (
     <div className="space-y-6">
       <form onSubmit={handleAddMenu} className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end bg-gray-50 p-4 rounded-lg">
+        <div className="md:col-span-5 flex flex-wrap gap-2">{([['single', '일반 메뉴'], ['component', '세트 구성 전용'], ['set', '세트 메뉴']] as const).map(([value, label]) => <Button key={value} type="button" disabled={!!editing || saving} variant={menuType === value ? "default" : "outline"} onClick={() => { setMenuType(value); setComponents([]); }}>{label}</Button>)}</div>
         <div className="space-y-2">
           <Label htmlFor="category">카테고리</Label>
           <Input id="category" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="예: 식사, 음료" required />
@@ -96,14 +107,17 @@ export function MenuManager({ storeId }: { storeId: string }) {
         </div>
         <div className="space-y-2">
           <Label htmlFor="price">가격 (원)</Label>
-          <Input id="price" type="number" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="5000" required />
+          <Input id="price" type="number" min={0} step={1} disabled={menuType === "component"} value={menuType === "component" ? "0" : price} onChange={(e) => setPrice(e.target.value)} placeholder="5000" required={menuType !== "component"} />
         </div>
-        <div className="space-y-2">
+        {menuType !== "set" && <div className="space-y-2">
           <Label htmlFor="kitchenGroup">담당 주방(구역)</Label>
-          <Input id="kitchenGroup" type="number" value={kitchenGroup} onChange={(e) => setKitchenGroup(e.target.value)} placeholder="1" required />
-        </div>
-        <div className="md:col-span-5">
-          <Button type="submit" className="w-full">새 메뉴 등록하기</Button>
+          <Input id="kitchenGroup" type="number" value={kitchenGroup} onChange={(e) => setKitchenGroup(e.target.value)} placeholder="1" min={1} step={1} required />
+        </div>}
+        {menuType === "set" && <div className="md:col-span-5"><SetComponentsEditor menus={menus} value={components} onChange={setComponents} /></div>}
+        {menuType === "component" && <p className="md:col-span-5 text-sm text-gray-500">구성 전용 메뉴는 단품으로 판매하지 않으며 세트의 주방 작업에만 사용합니다. 가격은 세트 메뉴에 입력합니다.</p>}
+        <div className="md:col-span-5 flex gap-2">
+          <Button type="submit" disabled={saving} className="flex-1">{saving ? "저장 중..." : editing ? "세트 메뉴 수정" : "새 메뉴 등록하기"}</Button>
+          {editing && <Button type="button" variant="outline" disabled={saving} onClick={resetForm}>수정 취소</Button>}
         </div>
       </form>
 
@@ -132,12 +146,16 @@ export function MenuManager({ storeId }: { storeId: string }) {
                     <TableCell>{menu.category}</TableCell>
                     <TableCell className="font-medium">
                       {menu.name}
+                      {menu.menu_type === "set" && <span className="ml-2 text-xs text-blue-600">[세트]</span>}
+                      {menu.menu_type === "component" && <span className="ml-2 text-xs text-gray-500">[구성 전용]</span>}
+                      {menu.menu_type === "set" && <p className="text-xs font-normal text-gray-500">{setDescription(menu, new Map(menus.map(entry => [entry.id, entry])))}</p>}
                       {menu.is_sold_out && <span className="ml-2 text-xs text-red-500 font-bold">[품절]</span>}
                       {menu.is_hidden && <span className="ml-2 text-xs text-gray-500 font-bold">[숨김]</span>}
                     </TableCell>
-                    <TableCell>{menu.price.toLocaleString()}원</TableCell>
-                    <TableCell>{menu.kitchen_group}구역</TableCell>
+                    <TableCell>{menu.menu_type === "component" ? "구성 전용" : `${menu.price.toLocaleString()}원`}</TableCell>
+                    <TableCell>{menu.menu_type === "set" ? "구성품별 주방" : `${menu.kitchen_group}구역`}</TableCell>
                     <TableCell className="text-right space-x-2 whitespace-nowrap">
+                      {menu.menu_type === "set" && <Button variant="outline" size="sm" onClick={() => { setEditing(menu.id); setName(menu.name); setPrice(String(menu.price)); setCategory(menu.category); setMenuType("set"); setComponents(menu.set_components ?? []); }}>세트 수정</Button>}
                       <Button variant="outline" size="sm" onClick={() => toggleSoldOut(menu.id, menu.is_sold_out)}>
                         {menu.is_sold_out ? "품절 해제" : "품절 처리"}
                       </Button>

@@ -11,10 +11,10 @@ import { readPendingOrder, savePendingOrder, clearPendingOrder, orderRpcArgs, is
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { useConfirmation } from "@/components/useConfirmation";
 import { CustomerEntry } from "@/components/CustomerEntry";
-import { couponPayment, type Customer, type CouponAccount } from "@/lib/couponPayment";
+import { customerTypeLabel, couponPayment, type Customer, type CouponAccount } from "@/lib/couponPayment";
 import { PinLock } from "@/components/PinLock";
 
-type Menu = { id: string; name: string; price: number; category: string; kitchen_group: number; is_sold_out: boolean; is_hidden: boolean; is_deleted: boolean };
+import { menuSaleIssue, setChanged, setDescription, type SetMenu as Menu } from "@/lib/menuSets";
 
 export default function OrderPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
@@ -185,8 +185,10 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   const currentMenus = new Map(menus.map(menu => [menu.id, menu]));
   const cartIssue = (menu: Menu) => {
     const current = currentMenus.get(menu.id);
-    if (!current || current.is_hidden || current.is_deleted) return "판매 중단";
-    if (current.is_sold_out) return "품절";
+    if (!current) return "판매 중단";
+    const issue = menuSaleIssue(current, currentMenus);
+    if (issue) return issue;
+    if (setChanged(menu, current)) return "구성 변경";
     if (current.price !== menu.price) return "가격 변경";
     return null;
   };
@@ -247,7 +249,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       title: "주문 내용 확인",
       description: "테이블·메뉴·수량·총 결제금액을 확인해 주세요.",
       details: [
-        `${customer.type} · ${customer.name || "이름 미입력"}${customer.type === "지체 손님" ? ` · 지체: ${customer.member || "미등록"}` : ""}`,
+        `${customerTypeLabel(customer.type)} · ${customer.name || "이름 미입력"}${customer.type === "지체 손님" ? ` · 지체: ${customer.member || "미등록"}` : ""}`,
         `테이블: ${tableNumber.trim()} · 결제: ${paymentMethod}`,
         ...cart.map(item => `${item.menu.name} × ${item.quantity} · ${(item.menu.price * item.quantity).toLocaleString()}원`),
         `총 결제금액: ${totalPrice.toLocaleString()}원`,
@@ -279,7 +281,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         customer: customer!,
         couponUsed: payment!.used,
         cashReceived: paymentMethod === "쿠폰" ? 0 : cashInput === "" ? null : payment!.received,
-        items: cart.map(({ menu, quantity }) => ({ menu_id: menu.id, quantity, unit_price: menu.price })),
+        items: cart.map(({ menu, quantity }) => ({ menu_id: menu.id, quantity, unit_price: menu.price, ...(menu.menu_type === "set" ? { components: menu.set_components } : {}) })),
       };
       // 요청을 보내기 전에 보관해 응답 유실·새로고침 후에도 같은 ID로 재시도한다.
       savePendingOrder(sessionStorage, request);
@@ -316,7 +318,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   };
 
   // Group menus by category
-  const groupedMenus = menus.filter(menu => !menu.is_hidden && !menu.is_deleted).reduce((acc, menu) => {
+  const groupedMenus = menus.filter(menu => !menu.is_hidden && !menu.is_deleted && menu.menu_type !== "component").reduce((acc, menu) => {
     if (!acc[menu.category]) acc[menu.category] = [];
     acc[menu.category].push(menu);
     return acc;
@@ -334,7 +336,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         <div className="md:col-span-3 rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-2" role="status">
           <p className="font-semibold">{submitting ? "주문 접수 확인 중..." : "접수 결과를 확인해야 하는 주문이 있습니다."}</p>
           <p className="text-sm">테이블 {pendingOrder.tableNumber} · {pendingOrder.items.reduce((sum, item) => sum + item.quantity, 0)}개 · {pendingOrder.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0).toLocaleString()}원</p>
-          {pendingOrder.customer && <p className="text-sm">{pendingOrder.customer.type} · {pendingOrder.customer.member} {pendingOrder.customer.name || "이름 미입력"} · {pendingOrder.paymentMethod} · 쿠폰 사용 {(pendingOrder.couponUsed ?? 0).toLocaleString()}원 · 받은 현금 {pendingOrder.cashReceived === null ? "필요 금액과 동일" : `${pendingOrder.cashReceived?.toLocaleString()}원`}</p>}
+          {pendingOrder.customer && <p className="text-sm">{customerTypeLabel(pendingOrder.customer.type)} · {pendingOrder.customer.member} {pendingOrder.customer.name || "이름 미입력"} · {pendingOrder.paymentMethod} · 쿠폰 사용 {(pendingOrder.couponUsed ?? 0).toLocaleString()}원 · 받은 현금 {pendingOrder.cashReceived === null ? "필요 금액과 동일" : `${pendingOrder.cashReceived?.toLocaleString()}원`}</p>}
           <p className="text-sm text-gray-600">아래 버튼으로 먼저 접수 결과를 확인해 주세요. 새로고침해도 이 요청을 이어서 확인합니다.</p>
           <Button type="button" disabled={submitting || restoring || !!storageError} onClick={submitOrder}>접수 확인 / 재시도</Button>
         </div>
@@ -342,7 +344,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       {enteringCustomer && !pendingOrder && <div className="md:col-span-3"><CustomerEntry storeId={store_id} initial={customer} onContinue={startCustomer} disabled={submitting || restoring || !!storageError} /></div>}
       {(!enteringCustomer || !!pendingOrder) && <>
       {customer && <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50 p-3">
-        <div><p className="font-semibold">{customer.type} · {customer.name || "이름 미입력"}{customer.type === "지체 손님" && ` · 지체: ${customer.member || "미등록"}`}</p>
+        <div><p className="font-semibold">{customerTypeLabel(customer.type)} · {customer.name || "이름 미입력"}{customer.type === "지체 손님" && ` · 지체: ${customer.member || "미등록"}`}</p>
           <p className="text-sm">{accountError ? accountError : account ? `쿠폰 잔액 ${account.balance.toLocaleString()}원` : customer.name ? "등록된 쿠폰 정보 없음" : "쿠폰 적립 시 이름이 필요합니다."}</p></div>
         <div className="flex gap-2"><Button type="button" variant="ghost" disabled={submitting || !!pendingOrder} onClick={() => void refreshAccount()}>잔액 확인</Button>
         <Button type="button" variant="outline" disabled={submitting || !!pendingOrder} onClick={() => { customerRef.current = null; setEnteringCustomer(true); setCouponInput(""); setCashInput(""); setPaymentMethod("현금"); }}>손님 변경</Button></div>
@@ -362,18 +364,19 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                 {groupedMenus[category].map((menu: Menu) => (
                   <Card 
                     key={menu.id} 
-                    className={`cursor-pointer transition-colors ${menu.is_sold_out ? 'opacity-50' : 'hover:border-primary'}`}
+                    className={`cursor-pointer transition-colors ${menuSaleIssue(menu, currentMenus) ? 'opacity-50' : 'hover:border-primary'}`}
                     onClick={() => addToCart(menu)}
                   >
                     <CardContent className="p-4 flex justify-between items-center">
                       <div>
                         <h3 className="font-bold text-lg">
                           {menu.name}
-                          {menu.is_sold_out && <span className="ml-2 text-sm text-red-500 font-bold">[품절]</span>}
+                          {menuSaleIssue(menu, currentMenus) && <span className="ml-2 text-sm text-red-500 font-bold">[{menuSaleIssue(menu, currentMenus)}]</span>}
                         </h3>
                         <p className="text-gray-500">{menu.price.toLocaleString()}원</p>
+                        {menu.menu_type === "set" && <p className="text-xs text-gray-500">{setDescription(menu, currentMenus)}</p>}
                       </div>
-                      <Button variant="secondary" size="sm" disabled={menu.is_sold_out}>추가</Button>
+                      <Button variant="secondary" size="sm" disabled={!!menuSaleIssue(menu, currentMenus)}>추가</Button>
                     </CardContent>
                   </Card>
                 ))}
@@ -401,9 +404,10 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                   <div key={item.menu.id} className="flex justify-between items-center border-b pb-2">
                     <div>
                       <p className="font-bold">{item.menu.name}</p>
+                      {item.menu.menu_type === "set" && <p className="text-xs text-gray-500">{setDescription(item.menu, currentMenus)}</p>}
                       <p className="text-sm text-gray-500">{item.menu.price.toLocaleString()}원</p>
                       {issue && <p className="text-xs text-red-600" role="alert">{issue}{issue === "가격 변경" && current ? `: ${current.price.toLocaleString()}원` : " · 주문 불가"}</p>}
-                      {issue === "가격 변경" && current && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.map(entry => entry.menu.id === item.menu.id ? { ...entry, menu: current } : entry))}>변경 가격 적용</Button>}
+                      {(issue === "가격 변경" || issue === "구성 변경") && current && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.map(entry => entry.menu.id === item.menu.id ? { ...entry, menu: current } : entry))}>{issue === "가격 변경" ? "변경 가격 적용" : "변경 구성 적용"}</Button>}
                       {issue && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.filter(entry => entry.menu.id !== item.menu.id))}>메뉴 빼기</Button>}
                     </div>
                     <div className="flex items-center gap-2">

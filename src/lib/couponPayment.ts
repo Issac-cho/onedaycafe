@@ -1,6 +1,11 @@
 export type Customer = { type: "외부자" | "개척자" | "지체 손님"; name: string; member: string };
 export type CouponAccount = { id: string; balance: number; member_name?: string };
 
+// DB 구분값은 기존 계정·미확인 주문의 호환을 위해 유지한다.
+export function customerTypeLabel(type: string) {
+  return type === "외부자" ? "외부 손님" : type;
+}
+
 export function parseWon(value: string): number | null {
   if (!/^\d+$/.test(value)) return null;
   const amount = Number(value);

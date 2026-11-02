@@ -81,7 +81,9 @@ END; $$;
     if ($LASTEXITCODE -ne 0) { throw 'coupon concurrency assertions failed' }
     & (Join-Path $pgBin 'psql.exe') @psqlArgs -f (Join-Path $PSScriptRoot 'kitchen-history.sql')
     if ($LASTEXITCODE -ne 0) { throw 'kitchen history timestamp tests failed' }
-    Write-Output 'Order, menu history, coupon and kitchen completion history tests passed.'
+    & (Join-Path $pgBin 'psql.exe') @psqlArgs -f (Join-Path $PSScriptRoot 'set-menus.sql')
+    if ($LASTEXITCODE -ne 0) { throw 'set menu tests failed' }
+    Write-Output 'Order, history, coupon and set menu tests passed.'
 } finally {
     if ($started) {
         & (Join-Path $pgBin 'pg_ctl.exe') -D $testRoot -m fast -w stop | Out-Null

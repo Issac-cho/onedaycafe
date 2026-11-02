@@ -9,6 +9,7 @@ function mount(result) {
   let cursor = 0;
   const dependencies = {
     react: { useState(initial) { const i = cursor++; if (!(i in hooks)) hooks[i] = initial; return [hooks[i], value => { hooks[i] = value; }]; } },
+    "@/lib/couponPayment": { customerTypeLabel: type => type === "외부자" ? "외부 손님" : type },
     "@/lib/supabase": { supabase: { rpc(name, args) { assert.equal(name, "find_friend_accounts"); calls.push(args); return { abortSignal: async () => result }; } } },
     "@/components/ui/button": { Button: "button" }, "@/components/ui/input": { Input: "input" }, "@/components/ui/label": { Label: "label" },
   };
@@ -39,6 +40,7 @@ test("entry has two tabs and resolves a friend to the stored type and member", a
 test("external customer can omit a name without looking up friends", async () => {
   const app = mount({ data: [], error: null }); await app.submit();
   assert.equal(app.calls.length, 0); assert.equal(app.customers[0].type, "외부자");
+  assert.ok(app.render().some(n => n.type === "button" && n.props.children === "외부 손님"));
 });
 test("ambiguous friend names require a choice, missing names and lookup errors do not guess a type", async () => {
   const app = mount({ data: [guest, { ...guest, id: "pioneer", customer_type: "개척자", member_name: "" }], error: null });

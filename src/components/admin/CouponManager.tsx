@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useConfirmation } from "@/components/useConfirmation";
 import { isRejectedOrder } from "@/lib/orderSubmission";
-import { parseWon, type Customer } from "@/lib/couponPayment";
+import { customerTypeLabel, parseWon, type Customer } from "@/lib/couponPayment";
 
 type Account = { id: string; customer_type: Customer["type"]; customer_name: string; member_name: string; balance: number };
 type Request = { p_request_id: string; p_store_id: string; p_customer_type: Customer["type"]; p_customer_name: string; p_member_name: string; p_amount: number; p_create: boolean };
@@ -88,7 +88,7 @@ export function CouponManager({ storeId }: { storeId: string }) {
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {storageError && <p role="alert" className="text-sm text-red-700">{storageError}</p>}
     <p className="text-sm text-gray-600">최초 등록액 {totals?.registered.toLocaleString() ?? "—"}원 · 관리자 추가 충전 {totals?.charged.toLocaleString() ?? "—"}원 (주문 매출과 별도)</p>
-    {pending && <div className="rounded bg-amber-50 p-3 space-y-2"><p>{pending.p_customer_type} · {pending.p_member_name} {pending.p_customer_name} · {pending.p_create ? "등록" : "추가 충전"} {pending.p_amount.toLocaleString()}원</p><Button disabled={busy || !restored} onClick={() => void send(pending)}>충전 결과 확인 / 재시도</Button></div>}
+    {pending && <div className="rounded bg-amber-50 p-3 space-y-2"><p>{customerTypeLabel(pending.p_customer_type)} · {pending.p_member_name} {pending.p_customer_name} · {pending.p_create ? "등록" : "추가 충전"} {pending.p_amount.toLocaleString()}원</p><Button disabled={busy || !restored} onClick={() => void send(pending)}>충전 결과 확인 / 재시도</Button></div>}
     <form onSubmit={async e => {
       e.preventDefault();
       if (busy || pending || !restored) return;
@@ -97,11 +97,11 @@ export function CouponManager({ storeId }: { storeId: string }) {
       const request: Request = { p_request_id: crypto.randomUUID(), p_store_id: storeId, p_customer_type: type,
         p_customer_name: name.trim(), p_member_name: type === "지체 손님" ? member.trim() : "", p_amount: value, p_create: !selected };
       if (await confirm({ title: selected ? "쿠폰 추가 충전" : "쿠폰 계정 등록", description: "손님 이름과 금액을 확인해 주세요.",
-        details: [`${type} · ${request.p_customer_name}`, `${selected ? "추가 충전" : "최초 잔액"}: ${value.toLocaleString()}원`, `예상 잔액: ${((selected?.balance ?? 0) + value).toLocaleString()}원`], confirmLabel: selected ? "충전하기" : "등록하기" })) await send(request);
+        details: [`${customerTypeLabel(type)} · ${request.p_customer_name}`, `${selected ? "추가 충전" : "최초 잔액"}: ${value.toLocaleString()}원`, `예상 잔액: ${((selected?.balance ?? 0) + value).toLocaleString()}원`], confirmLabel: selected ? "충전하기" : "등록하기" })) await send(request);
     }}>
       <fieldset disabled={busy || !!pending || !restored} className="space-y-3 rounded-lg border p-4">
         <h3 className="font-semibold">{selected ? "추가 충전" : "새 계정 등록"}</h3>
-        <div className="flex flex-wrap gap-2">{(["외부자", "개척자", "지체 손님"] as const).map(value => <Button key={value} type="button" disabled={!!selected} variant={type === value ? "default" : "outline"} onClick={() => { setType(value); setName(""); setMember(""); }}>{value}</Button>)}</div>
+        <div className="flex flex-wrap gap-2">{(["외부자", "개척자", "지체 손님"] as const).map(value => <Button key={value} type="button" disabled={!!selected} variant={type === value ? "default" : "outline"} onClick={() => { setType(value); setName(""); setMember(""); }}>{customerTypeLabel(value)}</Button>)}</div>
         <div><Label htmlFor="admin-customer">{type === "개척자" ? "개척자 이름" : "손님 이름"}</Label><Input id="admin-customer" value={name} onChange={e => setName(e.target.value)} required readOnly={!!selected} maxLength={100} /></div>
         {type === "지체 손님" && <div className="space-y-2"><Label htmlFor="admin-member">지체 이름 (표시용)</Label><Input id="admin-member" value={member} onChange={e => setMember(e.target.value)} maxLength={100} />{selected && <Button type="button" variant="outline" onClick={async () => {
           if (locked.current) return;
@@ -119,7 +119,7 @@ export function CouponManager({ storeId }: { storeId: string }) {
       </fieldset>
     </form>
     <div className="flex gap-2"><Input aria-label="쿠폰 계정 이름 검색" placeholder="손님 이름 검색" value={search} onChange={e => setSearch(e.target.value)} /><Button variant="outline" disabled={busy} onClick={() => void fetchAccounts()}>새로고침</Button></div>
-    <div className="max-h-80 overflow-y-auto divide-y">{accounts.filter(a => a.customer_name.includes(search.trim())).map(a => <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="font-medium">{a.customer_type} · {a.customer_name}{a.customer_type === "지체 손님" ? ` · 지체: ${a.member_name || "미등록"}` : ""}</p><p className="text-sm">잔액 {a.balance.toLocaleString()}원</p></div><Button variant="outline" disabled={busy || !!pending || !restored} onClick={() => { setSelected(a); setType(a.customer_type); setName(a.customer_name); setMember(a.member_name); setAmount(""); }}>추가 충전</Button></div>)}</div>
+    <div className="max-h-80 overflow-y-auto divide-y">{accounts.filter(a => a.customer_name.includes(search.trim())).map(a => <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="font-medium">{customerTypeLabel(a.customer_type)} · {a.customer_name}{a.customer_type === "지체 손님" ? ` · 지체: ${a.member_name || "미등록"}` : ""}</p><p className="text-sm">잔액 {a.balance.toLocaleString()}원</p></div><Button variant="outline" disabled={busy || !!pending || !restored} onClick={() => { setSelected(a); setType(a.customer_type); setName(a.customer_name); setMember(a.member_name); setAmount(""); }}>추가 충전</Button></div>)}</div>
     {confirmationDialog}
   </div>;
 }

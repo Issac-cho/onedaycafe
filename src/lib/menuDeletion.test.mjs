@@ -17,8 +17,10 @@ async function setup(confirmed = true, fail = false) {
   const query = {
     select() { return updating ? Promise.resolve({ data: [{ id: "coffee" }], error: fail ? { message: "offline" } : null }) : this; },
     eq(...args) { filters.push(args); return this; },
-    order() { updating = false; return Promise.resolve({ data: [menu], error: null }); },
+    order() { updating = false; return this; },
+    range() { return Promise.resolve({ data: [menu], error: null }); },
     update(value) { updating = true; updates.push(value); return this; },
+    insert(value) { updating = true; updates.push(value); return this; },
     delete() { assert.fail("menu rows must never be physically deleted"); },
   };
   const exports = {};
@@ -31,6 +33,8 @@ async function setup(confirmed = true, fail = false) {
       },
       useEffect: callback => { effect = callback; }, useCallback: callback => callback,
     },
+    "@/components/admin/SetComponentsEditor": { SetComponentsEditor: "SetComponentsEditor" },
+    "@/lib/menuSets": { setDescription: () => "" },
     "@/lib/supabase": { supabase: { from: () => query } },
     "@/components/ui/button": { Button: "button" },
     "@/components/ui/input": { Input: "input" },
@@ -49,7 +53,16 @@ async function setup(confirmed = true, fail = false) {
     if (node.type === "button" && node.props.children === "삭제") return node.props;
     return findDelete(node.props.children);
   }
-  return { updates, filters, alerts, remove: () => findDelete(render()).onClick() };
+  function nodes() {
+    const result = [];
+    function visit(node) { if (Array.isArray(node)) return node.forEach(visit); if (!node?.props) return; result.push(node); visit(node.props.children); }
+    visit(render()); return result;
+  }
+  return { updates, filters, alerts, nodes, remove: () => findDelete(render()).onClick(),
+    input(id, value) { nodes().find(n => n.props.id === id).props.onChange({ target: { value } }); },
+    kind(label) { nodes().find(n => n.type === "button" && n.props.children === label).props.onClick(); },
+    submit: () => nodes().find(n => n.type === "form").props.onSubmit({ preventDefault() {} }),
+  };
 }
 
 test("menu deletion marks the row deleted and hidden, scoped to its store", async () => {
@@ -68,4 +81,17 @@ test("cancelling deletion does not write, and failures are surfaced", async () =
   const failed = await setup(true, true);
   await failed.remove();
   assert.ok(failed.alerts[0].includes("삭제하지 못했습니다"));
+});
+
+test("administrator can register component-only products and fixed sets", async () => {
+  const component = await setup(); component.kind("세트 구성 전용"); component.input("name", "콜라");
+  await component.submit();
+  assert.equal(component.updates[0][0].menu_type, "component");
+  assert.equal(component.updates[0][0].price, 0);
+  const set = await setup(); set.kind("세트 메뉴"); set.input("name", "콜라 2개"); set.input("price", "5000");
+  set.nodes().find(n => n.type === "SetComponentsEditor").props.onChange([{ menu_id: "coffee", quantity: 2 }]);
+  await set.submit();
+  assert.equal(set.updates[0][0].menu_type, "set");
+  assert.equal(set.updates[0][0].set_components[0].quantity, 2);
+  assert.equal(set.updates[0][0].price, 5000);
 });

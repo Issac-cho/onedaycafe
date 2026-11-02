@@ -10,6 +10,10 @@ export type QueueItem = {
   cooked_quantity: number;
   status: string;
   created_at: string;
+  menu_name?: string | null;
+  sale_line_id?: string | null;
+  set_name?: string | null;
+  sale_quantity?: number | null;
   menu: { id: string; name: string; kitchen_group: number; store_id: string };
   order: { id: string; table_number: string; order_number: number; status: string };
 };
@@ -42,7 +46,7 @@ export function useOrderQueue(storeId: string, status: "pending" | "cooked" | "s
         const allItems: QueueItem[] = [];
         for (let offset = 0; ; offset += 500) {
           let query = supabase.from("order_items").select(`
-            id, quantity, served_quantity, cooked_quantity, status, created_at,
+            id, quantity, served_quantity, cooked_quantity, status, created_at, menu_name, sale_line_id, set_name, sale_quantity,
             menu:menus!inner(id, name, kitchen_group, store_id),
             order:orders!inner(id, table_number, order_number, status)
           `).eq("menu.store_id", storeId).eq("order.store_id", storeId);
@@ -62,7 +66,7 @@ export function useOrderQueue(storeId: string, status: "pending" | "cooked" | "s
           if (!data || data.length < 500) break;
         }
         if (active) {
-          setItems(allItems);
+          setItems(allItems.map(item => ({ ...item, menu: { ...item.menu, name: item.menu_name || item.menu?.name } })));
           setError(null);
           setLastUpdated(new Date());
         }

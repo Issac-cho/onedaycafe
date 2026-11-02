@@ -120,6 +120,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                         <div key={item.id} className={`flex items-center gap-2 py-3 ${!readyToServe && !fullyServed ? "opacity-50" : ""}`}>
                           <span className={`min-w-0 flex-1 font-semibold break-words ${served ? "text-gray-500" : ""}`}>
                             {item.menu.name} <span className="text-sm font-normal">× {item.quantity}</span>
+                            {item.set_name && <span className="block text-xs font-normal text-blue-700">{item.set_name} × {item.sale_quantity} 구성품</span>}
                           </span>
                           <span className="shrink-0 text-xs text-gray-500">출발: {item.menu.kitchen_group}구역</span>
                           <Button

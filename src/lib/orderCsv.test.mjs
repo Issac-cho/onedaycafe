@@ -26,7 +26,7 @@ function client(rows, failedPage = -1) {
         : { data: rows.slice(from, to + 1), error: null });
     },
   };
-  return { from(table) { assert.equal(table, "order_items"); return query; }, ranges, ordering };
+  return { from(table) { assert.equal(table, "order_sales"); return query; }, ranges, ordering };
 }
 
 test("CSV loads every row past 1000 with a stable order and bounded pages", async () => {
@@ -64,6 +64,24 @@ test("order coupon and cash totals occur only on the first menu row", () => {
   const order = { ...row(0).order, id: "order", customer_type: "외부자", customer_name: "홍길동",
     coupon_used: 1000, cash_due: 11000, cash_received: 15000, coupon_credited: 4000 };
   const lines = buildOrderCsv([{ ...row(0), order }, { ...row(1), order }]).split("\r\n");
-  assert.ok(lines[1].endsWith('1000,11000,15000,4000'));
-  assert.ok(lines[2].endsWith('"","","",""'));
+  assert.ok(lines[1].endsWith('1000,11000,15000,4000,""'));
+  assert.ok(lines[2].endsWith('"","","","",""'));
+});
+
+test("sets are exported as sales rows at the set price with per-set component snapshots", async () => {
+  const order = { ...row(0).order, id: "order", coupon_used: 0, cash_due: 35000, cash_received: 40000, coupon_credited: 5000 };
+  const sales = [
+    { ...row(0), menu_name: "필라프 세트", quantity: 2, menu_price: 15000, order, status: undefined,
+      items: [{ status: "served" }, { status: "cooked" }], components: [{ menu_name: "필라프", quantity: 1 }, { menu_name: "콜라", quantity: 1 }] },
+    { ...row(1), menu_name: "콜라 2개", quantity: 1, menu_price: 5000, order, status: undefined,
+      items: [{ status: "served" }], components: [{ menu_name: "콜라", quantity: 2 }] },
+  ];
+  const exported = await fetchCsvOrderItems(client(sales), "store");
+  assert.equal(exported[0].status, "cooked"); assert.equal(exported[1].status, "served");
+  const csv = buildOrderCsv(exported);
+  assert.ok(csv.includes('"필라프 세트",2,15000,30000'));
+  assert.ok(csv.includes('"콜라 2개",1,5000,5000'));
+  assert.ok(csv.includes('"필라프 × 1 / 콜라 × 1"'));
+  assert.equal(csv.split("\r\n").length - 2, 2);
+  assert.ok(csv.split("\r\n")[0].includes("메뉴별 주문금액"));
 });

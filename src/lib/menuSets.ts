@@ -1,9 +1,15 @@
+import type { OptionGroup, OptionSpec, MenuSelection } from "./menuOptions";
 export type SetComponent = { menu_id: string; quantity: number };
 export type SetMenu = {
   id: string; name: string; price: number; category: string; kitchen_group: number;
   is_sold_out: boolean; is_hidden: boolean; is_deleted?: boolean;
   menu_type?: "single" | "component" | "set";
   set_components?: SetComponent[];
+  option_groups?: OptionGroup[];
+  cart_key?: string;
+  option_schema?: OptionSpec[];
+  selections?: MenuSelection[];
+  selection_label?: string;
 };
 
 export function menuSaleIssue(menu: SetMenu, menus: Map<string, SetMenu>): string | null {

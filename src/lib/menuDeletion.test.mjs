@@ -33,6 +33,7 @@ async function setup(confirmed = true, fail = false) {
       },
       useEffect: callback => { effect = callback; }, useCallback: callback => callback,
     },
+    "@/components/admin/MenuOptionsEditor": { MenuOptionsEditor: "MenuOptionsEditor" },
     "@/components/admin/SetComponentsEditor": { SetComponentsEditor: "SetComponentsEditor" },
     "@/lib/menuSets": { setDescription: () => "" },
     "@/lib/supabase": { supabase: { from: () => query } },
@@ -94,4 +95,13 @@ test("administrator can register component-only products and fixed sets", async 
   assert.equal(set.updates[0][0].menu_type, "set");
   assert.equal(set.updates[0][0].set_components[0].quantity, 2);
   assert.equal(set.updates[0][0].price, 5000);
+});
+
+
+test("administrator registers temperature and flavor choices as text groups", async () => {
+  const app = await setup(); app.input("name", "아메리카노"); app.input("price", "5000");
+  app.nodes().find(n => n.type === "MenuOptionsEditor").props.onChange([{ name: " 온도 ", choices: ["아이스", " 핫 "], count: 1 }]);
+  await app.submit();
+  assert.equal(app.updates[0][0].option_groups[0].name, "온도");
+  assert.equal(app.updates[0][0].option_groups[0].choices[1], "핫");
 });

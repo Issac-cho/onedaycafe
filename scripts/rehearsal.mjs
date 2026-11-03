@@ -186,7 +186,7 @@ async function main() {
   });
   const { data: store, error } = await client.from("stores").select("id,name").eq("id", values["store-id"]).single();
   if (error) throw error;
-  const { data: menus, error: menuError } = await client.from("menus").select("id,price,kitchen_group").eq("menu_type", "single")
+  const { data: menus, error: menuError } = await client.from("menus").select("id,price,kitchen_group").eq("menu_type", "single").eq("option_groups", "[]")
     .eq("store_id", store.id).eq("is_sold_out", false).eq("is_hidden", false).eq("is_deleted", false);
   if (menuError) throw menuError;
   validateTarget(store, values["store-name"], menus);

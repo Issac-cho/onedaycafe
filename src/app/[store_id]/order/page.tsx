@@ -14,12 +14,15 @@ import { CustomerEntry } from "@/components/CustomerEntry";
 import { customerTypeLabel, couponPayment, type Customer, type CouponAccount } from "@/lib/couponPayment";
 import { PinLock } from "@/components/PinLock";
 
+import { MenuOptionsDialog } from "@/components/MenuOptionsDialog";
+import { cartKey, optionSpecs } from "@/lib/menuOptions";
 import { menuSaleIssue, setChanged, setDescription, type SetMenu as Menu } from "@/lib/menuSets";
 
 export default function OrderPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
   const { confirm, confirmationDialog } = useConfirmation();
   const [menus, setMenus] = useState<Menu[]>([]);
+  const [optionMenu, setOptionMenu] = useState<Menu | null>(null);
   const [cart, setCart] = useState<{ menu: Menu; quantity: number }[]>([]);
   const [tableNumber, setTableNumber] = useState("");
   const [paymentSelection, setPaymentMethod] = useState("현금");
@@ -188,6 +191,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     if (!current) return "판매 중단";
     const issue = menuSaleIssue(current, currentMenus);
     if (issue) return issue;
+    if ((menu.option_schema || menu !== current) && JSON.stringify(menu.option_schema ?? []) !== JSON.stringify(optionSpecs(current, currentMenus))) return "선택 변경";
     if (setChanged(menu, current)) return "구성 변경";
     if (current.price !== menu.price) return "가격 변경";
     return null;
@@ -196,11 +200,15 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
 
   const addToCart = (menu: Menu) => {
     if (!currentMenus.has(menu.id) || cartIssue(menu) || menuError || pendingOrder || submitting || restoring || storageError) return;
+    if (!menu.cart_key && optionSpecs(menu, currentMenus).length) {
+      if (optionSpecs(menu, currentMenus).reduce((sum, spec) => sum + spec.groups.reduce((n, group) => n + group.count * spec.multiplier, 0), 0) > 100) { alert("선택 항목이 너무 많습니다. 관리자에게 구성을 확인해 주세요."); return; }
+      setOptionMenu(menu); return;
+    }
     setCart((prev) => {
-      const existing = prev.find((item) => item.menu.id === menu.id);
+      const existing = prev.find((item) => cartKey(item.menu) === cartKey(menu));
       if (existing) {
         return prev.map((item) =>
-          item.menu.id === menu.id ? { ...item, quantity: item.quantity + 1 } : item
+          cartKey(item.menu) === cartKey(menu) ? { ...item, quantity: item.quantity + 1 } : item
         );
       }
       return [...prev, { menu, quantity: 1 }];
@@ -210,13 +218,13 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   const removeFromCart = (menuId: string) => {
     if (pendingOrder || submitting || restoring || storageError) return;
     setCart((prev) => {
-      const existing = prev.find((item) => item.menu.id === menuId);
+      const existing = prev.find((item) => cartKey(item.menu) === menuId);
       if (existing && existing.quantity > 1) {
         return prev.map((item) =>
-          item.menu.id === menuId ? { ...item, quantity: item.quantity - 1 } : item
+          cartKey(item.menu) === menuId ? { ...item, quantity: item.quantity - 1 } : item
         );
       }
-      return prev.filter((item) => item.menu.id !== menuId);
+      return prev.filter((item) => cartKey(item.menu) !== menuId);
     });
   };
 
@@ -251,7 +259,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       details: [
         `${customerTypeLabel(customer.type)} · ${customer.name || "이름 미입력"}${customer.type === "지체 손님" ? ` · 지체: ${customer.member || "미등록"}` : ""}`,
         `테이블: ${tableNumber.trim()} · 결제: ${paymentMethod}`,
-        ...cart.map(item => `${item.menu.name} × ${item.quantity} · ${(item.menu.price * item.quantity).toLocaleString()}원`),
+        ...cart.map(item => `${item.menu.name}${item.menu.selection_label ? ` · ${item.menu.selection_label}` : ""} × ${item.quantity} · ${(item.menu.price * item.quantity).toLocaleString()}원`),
         `총 결제금액: ${totalPrice.toLocaleString()}원`,
         `쿠폰 사용: ${payment.used.toLocaleString()}원 · 필요 현금: ${payment.due.toLocaleString()}원`,
         `받은 현금: ${payment.received.toLocaleString()}원`,
@@ -281,7 +289,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         customer: customer!,
         couponUsed: payment!.used,
         cashReceived: paymentMethod === "쿠폰" ? 0 : cashInput === "" ? null : payment!.received,
-        items: cart.map(({ menu, quantity }) => ({ menu_id: menu.id, quantity, unit_price: menu.price, ...(menu.menu_type === "set" ? { components: menu.set_components } : {}) })),
+        items: cart.map(({ menu, quantity }) => ({ menu_id: menu.id, quantity, unit_price: menu.price, ...(menu.menu_type === "set" ? { components: menu.set_components } : {}), ...(menu.selections ? { selections: menu.selections } : {}) })),
       };
       // 요청을 보내기 전에 보관해 응답 유실·새로고침 후에도 같은 ID로 재시도한다.
       savePendingOrder(sessionStorage, request);
@@ -401,17 +409,18 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                   const issue = cartIssue(item.menu);
                   const current = currentMenus.get(item.menu.id);
                   return (
-                  <div key={item.menu.id} className="flex justify-between items-center border-b pb-2">
+                  <div key={cartKey(item.menu)} className="flex justify-between items-center border-b pb-2">
                     <div>
                       <p className="font-bold">{item.menu.name}</p>
+                      {item.menu.selection_label && <p className="text-xs text-blue-700">{item.menu.selection_label}</p>}
                       {item.menu.menu_type === "set" && <p className="text-xs text-gray-500">{setDescription(item.menu, currentMenus)}</p>}
                       <p className="text-sm text-gray-500">{item.menu.price.toLocaleString()}원</p>
                       {issue && <p className="text-xs text-red-600" role="alert">{issue}{issue === "가격 변경" && current ? `: ${current.price.toLocaleString()}원` : " · 주문 불가"}</p>}
-                      {(issue === "가격 변경" || issue === "구성 변경") && current && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.map(entry => entry.menu.id === item.menu.id ? { ...entry, menu: current } : entry))}>{issue === "가격 변경" ? "변경 가격 적용" : "변경 구성 적용"}</Button>}
-                      {issue && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.filter(entry => entry.menu.id !== item.menu.id))}>메뉴 빼기</Button>}
+                      {(issue === "가격 변경" || issue === "구성 변경") && current && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.map(entry => cartKey(entry.menu) === cartKey(item.menu) ? { ...entry, menu: current } : entry))}>{issue === "가격 변경" ? "변경 가격 적용" : "변경 구성 적용"}</Button>}
+                      {issue && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.filter(entry => cartKey(entry.menu) !== cartKey(item.menu)))}>메뉴 빼기</Button>}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => removeFromCart(item.menu.id)}>-</Button>
+                      <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => removeFromCart(cartKey(item.menu))}>-</Button>
                       <span className="w-4 text-center font-bold">{item.quantity}</span>
                       <Button variant="outline" size="icon" className="h-6 w-6" disabled={!!issue || !!menuError} onClick={() => addToCart(item.menu)}>+</Button>
                     </div>
@@ -472,6 +481,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       </fieldset>
       </>}
     </div>
+    {optionMenu && <MenuOptionsDialog key={`${optionMenu.id}:${JSON.stringify(optionSpecs(optionMenu, currentMenus))}`} menu={optionMenu} specs={optionSpecs(optionMenu, currentMenus)} onAdd={addToCart} onClose={() => setOptionMenu(null)} />}
     {confirmationDialog}
     </PinLock>
   );

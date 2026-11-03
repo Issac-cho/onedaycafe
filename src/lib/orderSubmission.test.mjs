@@ -68,6 +68,8 @@ async function mount(saved = storage(), responses = [success], accepted = true, 
     "@/lib/orderSubmission": helpers,
     "@/lib/couponPayment": paymentHelpers,
     "@/lib/menuSets": load("./menuSets.ts"),
+    "@/lib/menuOptions": load("./menuOptions.ts"),
+    "@/components/MenuOptionsDialog": { MenuOptionsDialog: "MenuOptionsDialog" },
     "@/components/CustomerEntry": { CustomerEntry: "CustomerEntry" },
     "@/components/ui/button": { Button: "button" },
     "@/components/ui/card": Object.fromEntries(["Card", "CardContent", "CardHeader", "CardTitle"].map(name => [name, name])),
@@ -362,4 +364,25 @@ test("changed set composition needs an explicit cart update before checkout", as
   app.render().find(node => node.type === "button" && node.props.children === "변경 구성 적용").props.onClick();
   await app.submit(); assert.equal(app.calls[0].p_items[0].components[0].quantity, 2);
   app.cleanup();
+});
+
+
+test("text selections create separate cart rows and survive pending retries", async () => {
+  const app = await mount(storage(), [{ data: null, error: { message: "lost" } }, success]);
+  const product = { ...menu, option_groups: [{ name: "온도", choices: ["아이스", "핫"], count: 1 }] };
+  await app.menuChange([product]);
+  app.prepare();
+  const picker = app.render().find(node => node.type === "MenuOptionsDialog");
+  assert.ok(picker);
+  const optionHelpers = load("./menuOptions.ts");
+  const specs = optionHelpers.optionSpecs(product, new Map([[product.id, product]]));
+  for (const choice of ["아이스", "핫"]) {
+    picker.props.onAdd({ ...product, cart_key: choice, option_schema: specs, selections: [{ menu_id: product.id, groups: [[choice]] }], selection_label: choice });
+  }
+  picker.props.onClose();
+  await app.submit();
+  assert.equal(app.calls[0].p_items.length, 2);
+  assert.equal(app.calls[0].p_items[0].selections[0].groups[0][0], "아이스");
+  await app.retry();
+  assert.equal(JSON.stringify(app.calls[0]), JSON.stringify(app.calls[1])); app.cleanup();
 });

@@ -8,7 +8,7 @@ export type PendingOrder = {
   customer?: Customer;
   couponUsed?: number;
   cashReceived?: number | null;
-  items: { menu_id: string; quantity: number; unit_price: number; components?: { menu_id: string; quantity: number }[] }[];
+  items: { menu_id: string; quantity: number; unit_price: number; components?: { menu_id: string; quantity: number }[]; selections?: { menu_id: string; groups: string[][] }[] }[];
 };
 
 const storageKey = (storeId: string) => `pending_order_${storeId}`;
@@ -23,6 +23,7 @@ export function readPendingOrder(storage: Storage, storeId: string): PendingOrde
       || order.items.some(item => !item || typeof item.menu_id !== "string"
         || !Number.isInteger(item.quantity) || item.quantity <= 0
         || !Number.isInteger(item.unit_price) || item.unit_price < 0
+        || (item.selections !== undefined && (!Array.isArray(item.selections) || item.selections.some(selection => !selection || typeof selection.menu_id !== "string" || !Array.isArray(selection.groups) || selection.groups.some(values => !Array.isArray(values) || values.some(value => typeof value !== "string" || !value)))))
         || (item.components !== undefined && (!Array.isArray(item.components) || !item.components.length
           || item.components.some(part => !part || typeof part.menu_id !== "string" || !Number.isInteger(part.quantity) || part.quantity < 1))))) {
     throw new Error("미확인 주문 데이터를 읽을 수 없습니다. 관리자에게 접수 상태를 확인해 주세요.");

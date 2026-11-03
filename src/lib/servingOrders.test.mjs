@@ -46,6 +46,7 @@ function page(items, remaining = 0, conflict = false, role = "server", accepted 
   };
   const { default: Page } = load(`../app/[store_id]/${role}/page.tsx`, {
     react: { use: () => ({ store_id: "store" }), useState: value => [value, () => {}] },
+    "@/lib/menuOptions": load("./menuOptions.ts"),
     "@/lib/supabase": { supabase: { from: () => query } },
     "@/lib/useOrderQueue": { useOrderQueue: () => ({ items, loading: false, error: null, refresh: () => refreshes++ }) },
     "@/lib/servingOrders": { groupServingOrders },

@@ -4,6 +4,7 @@ import { use, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { splitWorkLabel } from "@/lib/menuOptions";
 import { useOrderQueue } from "@/lib/useOrderQueue";
 import { groupServingOrders } from "@/lib/servingOrders";
 import { QueueSoundAlert } from "@/components/QueueSoundAlert";
@@ -109,6 +110,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                   </div>
                   <div className="divide-y">
                     {items.map(item => {
+                      const display = splitWorkLabel(item.menu.name);
                       const cooked = item.cooked_quantity > 0;
                       const served = item.status === "served";
                       const servedQuantity = Math.min(item.quantity, Math.max(
@@ -119,16 +121,17 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                       const readyToServe = item.cooked_quantity > servedQuantity;
                       const label = busyIds.has(item.id) ? "처리 중" : fullyServed ? "서빙 완료됨" : readyToServe ? `서빙 완료 ${servedQuantity}/${item.quantity}` : "조리 중";
                       return (
-                        <div key={item.id} className={`flex items-center gap-2 py-3 ${!readyToServe && !fullyServed ? "opacity-50" : ""}`}>
+                        <div key={item.id} className={`grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-3 ${!readyToServe && !fullyServed ? "opacity-50" : ""}`}>
                           <span className={`min-w-0 flex-1 font-semibold break-words ${served ? "text-gray-500" : ""}`}>
-                            {item.menu.name} <span className="text-sm font-normal">× {item.quantity}</span>
+                            {display.title} <span className="text-sm font-normal">× {item.quantity}</span>
+                            {display.options && <span className="mt-1 block text-sm font-normal text-gray-700 [overflow-wrap:anywhere]">{display.options}</span>}
                             {item.set_name && <span className="block text-xs font-normal text-blue-700">{item.set_name} × {item.sale_quantity} 구성품</span>}
                           </span>
-                          <span className="shrink-0 text-xs text-gray-500">출발: {item.menu.kitchen_group}구역</span>
+                          <span className="text-sm text-gray-500">출발: {item.menu.kitchen_group}구역</span>
                           <Button
                             size="sm"
                             variant={cooked || served ? "outline" : "secondary"}
-                            className={`relative isolate shrink-0 overflow-hidden min-w-28 ${cooked || served ? `bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100 ${fullyServed ? "border-blue-200" : "border-blue-600"}` : ""}`}
+                            className={`relative isolate col-span-2 min-h-11 w-full overflow-hidden min-w-0 ${cooked || served ? `bg-white text-blue-700 hover:bg-white hover:text-blue-700 disabled:opacity-100 ${fullyServed ? "border-blue-200" : "border-blue-600"}` : ""}`}
                             disabled={!readyToServe || fullyServed || busyIds.has(item.id) || !!queue.error}
                             onClick={async () => {
                       if (servedQuantity + 1 === item.quantity) {
@@ -161,7 +164,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
                       {allServed ? "모든 메뉴를 서빙했습니다. 주문을 완료해 주세요." : `서빙 완료 ${items.filter(item => item.status === "served").length} / ${items.length}종`}
                     </p>
                     <Button
-                      className="w-full bg-green-600 hover:bg-green-700 text-white"
+                      className="min-h-12 w-full bg-green-600 hover:bg-green-700 text-white"
                       disabled={!allServed || busyIds.has(order.id) || !!queue.error}
                       onClick={() => completeOrder(order.id)}
                     >

@@ -7,12 +7,12 @@ import { selectionLabel, type OptionSpec, type MenuSelection } from "@/lib/menuO
 
 export function MenuOptionsDialog({ menu, specs, onAdd, onClose }: { menu: SetMenu; specs: OptionSpec[]; onAdd: (menu: SetMenu) => void; onClose: () => void }) {
   const [selections, setSelections] = useState<MenuSelection[]>(specs.map(spec => ({ menu_id: spec.menu_id, groups: spec.groups.map(group => Array(group.count * spec.multiplier).fill("")) })));
-  const [warning, setWarning] = useState<string | null>(null);
+  const [warning, setWarning] = useState<{ si: number; gi: number; text: string } | null>(null);
   const changeChoice = (si: number, gi: number, choice: string, remove = false) => {
     const values = selections[si].groups[gi];
     const index = remove ? values.lastIndexOf(choice) : values.indexOf("");
     if (index < 0) {
-      if (!remove) setWarning(`${specs[si].groups[gi].name}은(는) 최대 ${values.length}개까지 선택할 수 있습니다.`);
+      if (!remove) setWarning({ si, gi, text: `${specs[si].groups[gi].name}은(는) 최대 ${values.length}개까지 선택할 수 있습니다.` });
       return;
     }
     setWarning(null);
@@ -40,10 +40,10 @@ export function MenuOptionsDialog({ menu, specs, onAdd, onClose }: { menu: SetMe
               {count > 0 && <Button type="button" variant="outline" size="icon" className="min-h-11 min-w-11" aria-label={`${choice} 하나 빼기`} onClick={() => changeChoice(si, gi, choice, true)}>−</Button>}
             </div>;
           })}</div>
+          {warning?.si === si && warning.gi === gi && <p role="alert" className="text-sm text-orange-700">{warning.text}</p>}
         </fieldset>;
       })}</div>)}
-      {warning && <p role="alert" className="text-sm text-orange-700">{warning}</p>}
-      <div className="flex gap-2"><Button type="button" variant="outline" onClick={onClose}>취소</Button><Button type="submit" disabled={!complete} className="flex-1">장바구니에 추가</Button></div>
+      <div className="flex gap-2"><Button type="button" variant="outline" className="min-h-11" onClick={onClose}>취소</Button><Button type="submit" disabled={!complete} className="min-h-11 flex-1">장바구니에 추가</Button></div>
     </form>
   </DialogContent></Dialog>;
 }

@@ -15,13 +15,14 @@ import { customerTypeLabel, couponPayment, type Customer, type CouponAccount } f
 import { PinLock } from "@/components/PinLock";
 
 import { MenuOptionsDialog } from "@/components/MenuOptionsDialog";
-import { cartKey, optionSpecs } from "@/lib/menuOptions";
+import { cartKey, optionSpecs, refreshedCartMenu, replaceCartEntry } from "@/lib/menuOptions";
 import { menuSaleIssue, setChanged, setDescription, type SetMenu as Menu } from "@/lib/menuSets";
 
 export default function OrderPage({ params }: { params: Promise<{ store_id: string }> }) {
   const { store_id } = use(params);
   const { confirm, confirmationDialog } = useConfirmation();
   const [menus, setMenus] = useState<Menu[]>([]);
+  const [optionReplacement, setOptionReplacement] = useState<string | null>(null);
   const [optionMenu, setOptionMenu] = useState<Menu | null>(null);
   const [cart, setCart] = useState<{ menu: Menu; quantity: number }[]>([]);
   const [tableNumber, setTableNumber] = useState("");
@@ -215,6 +216,12 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
     });
   };
 
+  const refreshCartEntry = (before: Menu, current: Menu) => {
+    const refreshed = refreshedCartMenu(before, current, currentMenus);
+    if (refreshed) setCart(previous => replaceCartEntry(previous, cartKey(before), refreshed));
+    else { setOptionReplacement(cartKey(before)); setOptionMenu(current); }
+  };
+
   const removeFromCart = (menuId: string) => {
     if (pendingOrder || submitting || restoring || storageError) return;
     setCart((prev) => {
@@ -336,12 +343,12 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
 
   return (
     <PinLock storeId={store_id} role="order">
-      <div className="container mx-auto p-4 max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div className="md:col-span-3"><QueueConnectionStatus connected={connected} error={menuError} lastUpdated={lastUpdated} refresh={() => refreshMenusRef.current()} /></div>
-      {menuError && <p className="md:col-span-3 text-sm text-red-700" role="alert">{menuError} 새 주문은 상태 확인 후 접수할 수 있습니다.</p>}
-      {storageError && <p className="md:col-span-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700" role="alert">{storageError}</p>}
+      <div className="container mx-auto p-4 max-w-5xl grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="xl:col-span-3"><QueueConnectionStatus connected={connected} error={menuError} lastUpdated={lastUpdated} refresh={() => refreshMenusRef.current()} /></div>
+      {menuError && <p className="xl:col-span-3 text-sm text-red-700" role="alert">{menuError} 새 주문은 상태 확인 후 접수할 수 있습니다.</p>}
+      {storageError && <p className="xl:col-span-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700" role="alert">{storageError}</p>}
       {pendingOrder && (
-        <div className="md:col-span-3 rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-2" role="status">
+        <div className="xl:col-span-3 rounded-lg border border-amber-300 bg-amber-50 p-4 space-y-2" role="status">
           <p className="font-semibold">{submitting ? "주문 접수 확인 중..." : "접수 결과를 확인해야 하는 주문이 있습니다."}</p>
           <p className="text-sm">테이블 {pendingOrder.tableNumber} · {pendingOrder.items.reduce((sum, item) => sum + item.quantity, 0)}개 · {pendingOrder.items.reduce((sum, item) => sum + item.unit_price * item.quantity, 0).toLocaleString()}원</p>
           {pendingOrder.customer && <p className="text-sm">{customerTypeLabel(pendingOrder.customer.type)} · {pendingOrder.customer.member} {pendingOrder.customer.name || "이름 미입력"} · {pendingOrder.paymentMethod} · 쿠폰 사용 {(pendingOrder.couponUsed ?? 0).toLocaleString()}원 · 받은 현금 {pendingOrder.cashReceived === null ? "필요 금액과 동일" : `${pendingOrder.cashReceived?.toLocaleString()}원`}</p>}
@@ -349,9 +356,9 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
           <Button type="button" disabled={submitting || restoring || !!storageError} onClick={submitOrder}>접수 확인 / 재시도</Button>
         </div>
       )}
-      {enteringCustomer && !pendingOrder && <div className="md:col-span-3"><CustomerEntry storeId={store_id} initial={customer} onContinue={startCustomer} disabled={submitting || restoring || !!storageError} /></div>}
+      {enteringCustomer && !pendingOrder && <div className="xl:col-span-3"><CustomerEntry storeId={store_id} initial={customer} onContinue={startCustomer} disabled={submitting || restoring || !!storageError} /></div>}
       {(!enteringCustomer || !!pendingOrder) && <>
-      {customer && <div className="md:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50 p-3">
+      {customer && <div className="xl:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50 p-3">
         <div><p className="font-semibold">{customerTypeLabel(customer.type)} · {customer.name || "이름 미입력"}{customer.type === "지체 손님" && ` · 지체: ${customer.member || "미등록"}`}</p>
           <p className="text-sm">{accountError ? accountError : account ? `쿠폰 잔액 ${account.balance.toLocaleString()}원` : customer.name ? "등록된 쿠폰 정보 없음" : "쿠폰 적립 시 이름이 필요합니다."}</p></div>
         <div className="flex gap-2"><Button type="button" variant="ghost" disabled={submitting || !!pendingOrder} onClick={() => void refreshAccount()}>잔액 확인</Button>
@@ -359,7 +366,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       </div>}
       <fieldset disabled={submitting || !!pendingOrder || restoring || !!storageError} className="contents">
       {/* Menu List */}
-      <div className="md:col-span-2 space-y-6">
+      <div className="xl:col-span-2 space-y-6">
         <h1 className="text-2xl font-bold border-b pb-2">메뉴 주문</h1>
         
         {Object.keys(groupedMenus).length === 0 ? (
@@ -376,7 +383,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                     onClick={() => addToCart(menu)}
                   >
                     <CardContent className="p-4 flex justify-between items-center">
-                      <div>
+                      <div className="min-w-0 flex-1 break-words">
                         <h3 className="font-bold text-lg">
                           {menu.name}
                           {menuSaleIssue(menu, currentMenus) && <span className="ml-2 text-sm text-red-500 font-bold">[{menuSaleIssue(menu, currentMenus)}]</span>}
@@ -384,7 +391,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                         <p className="text-gray-500">{menu.price.toLocaleString()}원</p>
                         {menu.menu_type === "set" && <p className="text-xs text-gray-500">{setDescription(menu, currentMenus)}</p>}
                       </div>
-                      <Button variant="secondary" size="sm" disabled={!!menuSaleIssue(menu, currentMenus)}>추가</Button>
+                      <Button variant="secondary" size="sm" className="min-h-11 shrink-0 ml-2" disabled={!!menuSaleIssue(menu, currentMenus)}>추가</Button>
                     </CardContent>
                   </Card>
                 ))}
@@ -395,13 +402,13 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       </div>
 
       {/* Cart & Checkout */}
-      <div className="md:col-span-1">
-        <Card className="sticky top-4 gap-0 py-0">
+      <div className="xl:col-span-1">
+        <Card className="gap-0 py-0">
           <CardHeader className="rounded-none bg-primary px-4 py-3 text-primary-foreground">
             <CardTitle>장바구니</CardTitle>
           </CardHeader>
-          <CardContent className="p-4 flex flex-col max-h-[calc(100dvh-2rem)] overflow-y-auto">
-            <div className="max-h-64 overflow-y-auto space-y-4 pr-2">
+          <CardContent className="p-4 flex flex-col">
+            <div className="space-y-4">
               {cart.length === 0 ? (
                 <p className="text-center text-gray-500 py-8">장바구니가 비어있습니다.</p>
               ) : (
@@ -409,20 +416,20 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                   const issue = cartIssue(item.menu);
                   const current = currentMenus.get(item.menu.id);
                   return (
-                  <div key={cartKey(item.menu)} className="flex justify-between items-center border-b pb-2">
-                    <div>
+                  <div key={cartKey(item.menu)} className="flex flex-wrap justify-between items-center gap-3 border-b pb-3">
+                    <div className="min-w-0 flex-1 break-words">
                       <p className="font-bold">{item.menu.name}</p>
                       {item.menu.selection_label && <p className="text-xs text-blue-700">{item.menu.selection_label}</p>}
                       {item.menu.menu_type === "set" && <p className="text-xs text-gray-500">{setDescription(item.menu, currentMenus)}</p>}
                       <p className="text-sm text-gray-500">{item.menu.price.toLocaleString()}원</p>
                       {issue && <p className="text-xs text-red-600" role="alert">{issue}{issue === "가격 변경" && current ? `: ${current.price.toLocaleString()}원` : " · 주문 불가"}</p>}
-                      {(issue === "가격 변경" || issue === "구성 변경") && current && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.map(entry => cartKey(entry.menu) === cartKey(item.menu) ? { ...entry, menu: current } : entry))}>{issue === "가격 변경" ? "변경 가격 적용" : "변경 구성 적용"}</Button>}
+                      {(issue === "가격 변경" || issue === "구성 변경" || issue === "선택 변경") && current && <Button type="button" variant="ghost" size="xs" onClick={() => refreshCartEntry(item.menu, current)}>{issue === "가격 변경" ? "변경 가격 적용" : issue === "구성 변경" ? "변경 구성 적용" : "선택 다시 확인"}</Button>}
                       {issue && <Button type="button" variant="ghost" size="xs" onClick={() => setCart(previous => previous.filter(entry => cartKey(entry.menu) !== cartKey(item.menu)))}>메뉴 빼기</Button>}
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="icon" className="h-6 w-6" onClick={() => removeFromCart(cartKey(item.menu))}>-</Button>
-                      <span className="w-4 text-center font-bold">{item.quantity}</span>
-                      <Button variant="outline" size="icon" className="h-6 w-6" disabled={!!issue || !!menuError} onClick={() => addToCart(item.menu)}>+</Button>
+                      <Button variant="outline" size="icon" className="h-11 w-11" onClick={() => removeFromCart(cartKey(item.menu))}>-</Button>
+                      <span className="min-w-8 text-center font-bold">{item.quantity}</span>
+                      <Button variant="outline" size="icon" className="h-11 w-11" disabled={!!issue || !!menuError} onClick={() => addToCart(item.menu)}>+</Button>
                     </div>
                   </div>
                   );
@@ -481,7 +488,12 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       </fieldset>
       </>}
     </div>
-    {optionMenu && <MenuOptionsDialog key={`${optionMenu.id}:${JSON.stringify(optionSpecs(optionMenu, currentMenus))}`} menu={optionMenu} specs={optionSpecs(optionMenu, currentMenus)} onAdd={addToCart} onClose={() => setOptionMenu(null)} />}
+    {optionMenu && <MenuOptionsDialog key={`${optionMenu.id}:${JSON.stringify(optionSpecs(optionMenu, currentMenus))}`} menu={optionMenu} specs={optionSpecs(optionMenu, currentMenus)} onAdd={menu => {
+      if (optionReplacement) {
+        if (cartIssue(menu)) { alert("메뉴 정보가 변경되었습니다. 다시 확인해 주세요."); return; }
+        setCart(previous => replaceCartEntry(previous, optionReplacement, menu));
+      } else addToCart(menu);
+    }} onClose={() => { setOptionMenu(null); setOptionReplacement(null); }} />}
     {confirmationDialog}
     </PinLock>
   );

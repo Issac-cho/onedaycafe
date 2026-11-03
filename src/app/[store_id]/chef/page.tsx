@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { splitWorkLabel } from "@/lib/menuOptions";
 import { useOrderQueue } from "@/lib/useOrderQueue";
 import { QueueSoundAlert } from "@/components/QueueSoundAlert";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
@@ -84,20 +85,22 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {pendingItems.map((item) => {
+            const display = splitWorkLabel(item.menu.name);
             const cookedQuantity = Math.min(item.quantity, Math.max(item.cooked_quantity, cookedCounts[item.id] ?? 0));
             const fullyCooked = cookedQuantity === item.quantity;
             const label = busyIds.has(item.id) ? "처리 중" : cookedQuantity === item.quantity ? "조리 완료됨" : `조리 완료 ${cookedQuantity}/${item.quantity}`;
             const progress = cookedQuantity / item.quantity * 100;
             return (
               <Card key={item.id} className="border-l-4 border-l-yellow-500 shadow-sm animate-in fade-in zoom-in duration-300">
-                <CardContent className="p-4 flex justify-between items-center">
+                <CardContent className="p-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1 break-words">
                     <div className="text-sm font-bold text-yellow-600 mb-1">
                       [주문번호: {item.order.order_number}번] 테이블: {item.order.table_number}
                     </div>
                     <h3 className="text-xl font-bold">
-                      {item.menu.name} <span className="text-gray-500 ml-2">x {item.quantity}</span>
+                      {display.title} <span className="text-gray-500 ml-2">x {item.quantity}</span>
                     </h3>
+                    {display.options && <p className="mt-1 text-sm font-semibold text-gray-700 [overflow-wrap:anywhere]">{display.options}</p>}
                     {item.set_name && <p className="text-xs font-medium text-blue-700">{item.set_name} × {item.sale_quantity} 구성품</p>}
                     <div className="text-xs text-gray-400 mt-2">
                       주문 시간: {new Date(item.created_at).toLocaleTimeString()}
@@ -106,7 +109,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
                   <Button
                     size="lg"
                     variant="outline"
-                    className={`relative isolate shrink-0 overflow-hidden bg-white text-orange-700 hover:bg-white hover:text-orange-700 disabled:opacity-100 h-16 min-w-32 text-base font-bold ml-3 ${fullyCooked ? "border-orange-200" : "border-orange-600"}`}
+                    className={`relative isolate shrink-0 overflow-hidden bg-white text-orange-700 hover:bg-white hover:text-orange-700 disabled:opacity-100 h-16 min-w-32 text-base font-bold w-full sm:w-auto ${fullyCooked ? "border-orange-200" : "border-orange-600"}`}
                     disabled={busyIds.has(item.id) || cookedQuantity === item.quantity || !!queue.error}
                     onClick={async () => {
                       if (cookedQuantity + 1 === item.quantity) {

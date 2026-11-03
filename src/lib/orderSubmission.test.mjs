@@ -386,3 +386,38 @@ test("text selections create separate cart rows and survive pending retries", as
   await app.retry();
   assert.equal(JSON.stringify(app.calls[0]), JSON.stringify(app.calls[1])); app.cleanup();
 });
+
+
+test("price review retains chosen options and the original order quantity", async () => {
+  const app = await mount();
+  const product = { ...menu, option_groups: [{ name: "온도", choices: ["아이스", "핫"], count: 1 }] };
+  await app.menuChange([product]); app.prepare();
+  const picker = app.render().find(n => n.type === "MenuOptionsDialog");
+  picker.props.onAdd({ ...product, cart_key: "ice", option_schema: load("./menuOptions.ts").optionSpecs(product, new Map()), selections: [{ menu_id: product.id, groups: [["아이스"]] }] });
+  picker.props.onClose();
+  app.render().find(n => n.type === "button" && n.props.children === "+").props.onClick();
+  await app.menuChange([{ ...product, price: 4000 }]);
+  app.render().find(n => n.type === "button" && n.props.children === "변경 가격 적용").props.onClick();
+  await app.submit();
+  assert.equal(app.calls[0].p_items[0].quantity, 2);
+  assert.equal(app.calls[0].p_items[0].unit_price, 4000);
+  assert.equal(app.calls[0].p_items[0].selections[0].groups[0][0], "아이스"); app.cleanup();
+});
+
+test("cancelling option re-selection leaves the original cart untouched", async () => {
+  const app = await mount();
+  const product = { ...menu, option_groups: [{ name: "온도", choices: ["아이스", "핫"], count: 1 }] };
+  await app.menuChange([product]); app.prepare();
+  let picker = app.render().find(n => n.type === "MenuOptionsDialog");
+  picker.props.onAdd({ ...product, cart_key: "ice", option_schema: load("./menuOptions.ts").optionSpecs(product, new Map()), selections: [{ menu_id: product.id, groups: [["아이스"]] }] }); picker.props.onClose();
+  await app.menuChange([{ ...product, option_groups: [{ name: "온도", choices: ["핫"], count: 1 }] }]);
+  app.render().find(n => n.type === "button" && n.props.children === "선택 다시 확인").props.onClick();
+  picker = app.render().find(n => n.type === "MenuOptionsDialog"); picker.props.onClose();
+  assert.ok(app.render().some(n => n.props.role === "alert" && JSON.stringify(n.props.children).includes("선택 변경")));
+  await app.submit(); assert.equal(app.calls.length, 0);
+  app.render().find(n => n.type === "button" && n.props.children === "선택 다시 확인").props.onClick();
+  picker = app.render().find(n => n.type === "MenuOptionsDialog");
+  const current = { ...product, option_groups: [{ name: "온도", choices: ["핫"], count: 1 }] };
+  picker.props.onAdd({ ...current, cart_key: "hot", option_schema: load("./menuOptions.ts").optionSpecs(current, new Map()), selections: [{ menu_id: product.id, groups: [["핫"]] }] }); picker.props.onClose();
+  await app.submit(); assert.equal(app.calls[0].p_items.length, 1); assert.equal(app.calls[0].p_items[0].selections[0].groups[0][0], "핫"); app.cleanup();
+});

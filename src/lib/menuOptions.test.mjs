@@ -48,3 +48,17 @@ test("option dialog requires every pick, permits duplicates, and normalizes equi
   const twice = pick(["콜라", "콜라"]); assert.equal(twice.selections[0].groups[0].length, 2);
   assert.equal(pick(["콜라", "사이다"]).cart_key, pick(["사이다", "콜라"]).cart_key);
 });
+
+
+test("price refresh preserves valid selections and requires replacement when choices disappear", () => {
+  const menu = { id: "coffee", name: "커피", price: 5000, option_groups: [{ name: "온도", choices: ["아이스", "핫"], count: 1 }] };
+  const before = { ...menu, cart_key: "old", option_schema: helpers.optionSpecs(menu, new Map()), selections: [{ menu_id: "coffee", groups: [["아이스"]] }] };
+  const current = { ...menu, price: 6000 };
+  const refreshed = helpers.refreshedCartMenu(before, current, new Map());
+  assert.equal(refreshed.price, 6000); assert.equal(refreshed.selections[0].groups[0][0], "아이스");
+  assert.equal(helpers.refreshedCartMenu(before, { ...current, option_groups: [{ name: "온도", choices: ["핫"], count: 1 }] }, new Map()), null);
+  const replaced = helpers.replaceCartEntry([{ menu: before, quantity: 3 }], "old", refreshed);
+  assert.equal(replaced[0].quantity, 3);
+  const merged = helpers.replaceCartEntry([{ menu: before, quantity: 3 }, { menu: refreshed, quantity: 2 }], "old", refreshed);
+  assert.equal(merged.length, 1); assert.equal(merged[0].quantity, 5);
+});

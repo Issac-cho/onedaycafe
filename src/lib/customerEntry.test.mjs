@@ -50,8 +50,22 @@ test("ambiguous friend names require a choice, missing names and lookup errors d
   app.friend(); app.name("손님"); await app.submit(); assert.equal(app.customers.length, 0);
   await app.render().find(n => n.type === "button" && JSON.stringify(n.props.children).includes("홍지체")).props.onClick();
   await new Promise(resolve => setImmediate(resolve)); assert.equal(app.customers[0].type, "지체 손님");
-  for (const response of [{ data: [], error: null }, { data: null, error: { message: "offline" } }]) {
+  for (const response of [{ data: null, error: { message: "offline" } }]) {
     const missing = mount(response); missing.friend(); missing.name("누구"); await missing.submit();
     assert.equal(missing.customers.length, 0); assert.ok(missing.render().some(n => n.props.role === "alert"));
+  }
+});
+
+test("unregistered friends can continue with their name and chosen type, and editing clears the choice", async () => {
+  for (const type of ["개척자", "지체 손님"]) {
+    const app = mount({ data: [], error: null });
+    app.name(" 새손님 "); await app.submit();
+    assert.equal(app.customers.length, 0);
+    await app.render().find(n => n.type === "button" && n.props.children === type).props.onClick();
+    assert.equal(app.customers[0].type, type);
+    assert.equal(app.customers[0].name, "새손님");
+    assert.equal(app.customers[0].member, "");
+    app.name("다른손님");
+    assert.ok(!app.render().some(n => n.type === "button" && n.props.children === type));
   }
 });

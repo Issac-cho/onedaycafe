@@ -45,6 +45,16 @@ test("external customer can omit a name without looking up friends", async () =>
   assert.equal(app.calls.length, 0); assert.equal(app.customers[0].type, "외부자");
   assert.ok(app.render().some(n => n.type === "button" && n.props.children === "외부 손님"));
 });
+test("member name search selects the guest account rather than using the searched member as the customer", async () => {
+  const app = mount({ data: [guest, { ...guest, id: "guest2", customer_name: "손님2" }], error: null });
+  app.name("홍지체"); await app.submit();
+  assert.equal(app.calls[0].p_customer_name, "홍지체");
+  assert.equal(app.customers.length, 0);
+  await app.render().find(n => n.type === "button" && JSON.stringify(n.props.children).includes("손님2")).props.onClick();
+  assert.equal(app.customers[0].name, "손님2");
+  assert.equal(app.customers[0].member, "홍지체");
+  assert.equal(app.customers[0].type, "지체 손님");
+});
 test("ambiguous friend names require a choice, missing names and lookup errors do not guess a type", async () => {
   const app = mount({ data: [guest, { ...guest, id: "pioneer", customer_type: "개척자", member_name: "" }], error: null });
   app.friend(); app.name("손님"); await app.submit(); assert.equal(app.customers.length, 0);

@@ -41,10 +41,10 @@ export function CustomerEntry({ storeId, initial, onContinue, disabled }: { stor
     <fieldset disabled={busy || disabled} className="space-y-5">
       <div className="flex gap-2">{(["지인", "외부자"] as const).map(value =>
         <Button key={value} type="button" variant={type === value ? "default" : "outline"} aria-pressed={type === value} onClick={() => { setType(value); setName(""); setMatches([]); setNotFound(false); setError(null); }}>{customerTypeLabel(value)}</Button>)}</div>
-      <div className="space-y-2"><Label htmlFor="customer-name">손님 이름{type === "외부자" ? " (선택)" : ""}</Label><Input id="customer-name" value={name} onChange={e => { setName(e.target.value); setMatches([]); setNotFound(false); setError(null); }} required={type !== "외부자"} maxLength={100} /></div>
+      <div className="space-y-2"><Label htmlFor="customer-name">{type === "외부자" ? "손님 이름 (선택)" : "손님 이름 또는 지체 이름"}</Label><Input id="customer-name" value={name} onChange={e => { setName(e.target.value); setMatches([]); setNotFound(false); setError(null); }} required={type !== "외부자"} maxLength={100} /></div>
       {notFound && <div className="space-y-2"><p className="text-sm">등록된 지인이 없습니다. 손님 구분을 선택하면 쿠폰 잔액 없이 주문을 진행합니다.</p><div className="flex flex-wrap gap-2">{(["개척자", "지체 손님"] as const).map(value => <Button key={value} type="button" variant="outline" onClick={() => void chooseFriend({ id: "", customer_type: value, customer_name: name.trim(), member_name: "" })}>{value}</Button>)}</div></div>}
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      {matches.length > 1 && <div className="space-y-2"><p className="text-sm">같은 이름의 지인이 여러 명입니다. 해당 손님을 선택해 주세요.</p>{matches.map(friend => <Button key={friend.id} type="button" variant="outline" className="w-full" onClick={() => void chooseFriend(friend)}>{friend.customer_type} · {friend.customer_name}{friend.customer_type === "지체 손님" ? ` · 지체: ${friend.member_name || "미등록"}` : ""}</Button>)}</div>}
+      {matches.length > 1 && <div className="space-y-2"><p className="text-sm">검색된 지인 중 주문할 손님을 선택해 주세요.</p>{matches.map(friend => <Button key={friend.id} type="button" variant="outline" className="w-full" onClick={() => void chooseFriend(friend)}>{friend.customer_type} · {friend.customer_name}{friend.customer_type === "지체 손님" ? ` · 지체: ${friend.member_name || "미등록"}` : ""}</Button>)}</div>}
       <Button type="submit" className="w-full" disabled={(type !== "외부자" && !name.trim())}>{busy ? "확인 중..." : "주문 받기"}</Button>
     </fieldset>
   </form>;

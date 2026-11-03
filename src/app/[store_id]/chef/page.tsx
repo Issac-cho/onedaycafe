@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useOrderQueue } from "@/lib/useOrderQueue";
+import { QueueSoundAlert } from "@/components/QueueSoundAlert";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { useConfirmation } from "@/components/useConfirmation";
 import { PinLock } from "@/components/PinLock";
@@ -70,6 +71,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
       </div>
 
       <QueueConnectionStatus {...queue} />
+      <QueueSoundAlert key={`${store_id}:${kitchenGroup}`} mode="chef" items={queue.items} loading={queue.loading} error={queue.error} />
 
       {loading ? (
         <div className="text-center py-10">주문 목록을 불러오는 중...</div>

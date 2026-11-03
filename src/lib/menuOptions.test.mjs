@@ -34,7 +34,15 @@ test("option dialog requires every pick, permits duplicates, and normalizes equi
     }
     const submit = () => render().find(n => n.type === "form").props.onSubmit({ preventDefault() {} });
     submit(); assert.equal(added.length, 0);
-    values.forEach((value, index) => render().filter(n => n.type === "select")[index].props.onChange({ target: { value } }));
+    values.forEach(value => render().find(n => n.props["aria-label"] === `${value} 추가`).props.onClick());
+    render().find(n => n.props["aria-label"] === "콜라 추가").props.onClick();
+    assert.ok(render().some(n => n.props.role === "alert"));
+    const chosen = values[0];
+    render().find(n => n.props["aria-label"] === `${chosen} 하나 빼기`).props.onClick();
+    assert.equal(render().find(n => n.props.type === "submit").props.disabled, true);
+    assert.ok(!render().some(n => n.props.role === "alert"));
+    render().find(n => n.props["aria-label"] === `${chosen} 추가`).props.onClick();
+    assert.equal(render().find(n => n.props.type === "submit").props.disabled, false);
     submit(); return added[0];
   }
   const twice = pick(["콜라", "콜라"]); assert.equal(twice.selections[0].groups[0].length, 2);

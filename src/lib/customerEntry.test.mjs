@@ -31,6 +31,7 @@ function mount(result) {
 const guest = { id: "guest", customer_type: "지체 손님", customer_name: "손님", member_name: "홍지체" };
 test("entry has two tabs and resolves a friend to the stored type and member", async () => {
   const app = mount({ data: [guest], error: null });
+  assert.equal(app.render().find(n => n.type === "button" && n.props.children === "지인").props["aria-pressed"], true);
   assert.ok(!app.render().some(n => n.type === "button" && ["개척자", "지체 손님"].includes(n.props.children)));
   app.friend(); app.name("손님"); await app.submit();
   assert.equal(app.calls[0].p_customer_name, "손님");
@@ -38,7 +39,9 @@ test("entry has two tabs and resolves a friend to the stored type and member", a
   assert.equal(app.customers[0].member, "홍지체");
 });
 test("external customer can omit a name without looking up friends", async () => {
-  const app = mount({ data: [], error: null }); await app.submit();
+  const app = mount({ data: [], error: null });
+  app.render().find(n => n.type === "button" && n.props.children === "외부 손님").props.onClick();
+  await app.submit();
   assert.equal(app.calls.length, 0); assert.equal(app.customers[0].type, "외부자");
   assert.ok(app.render().some(n => n.type === "button" && n.props.children === "외부 손님"));
 });

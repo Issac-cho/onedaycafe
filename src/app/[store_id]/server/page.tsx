@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useOrderQueue } from "@/lib/useOrderQueue";
 import { groupServingOrders } from "@/lib/servingOrders";
+import { QueueSoundAlert } from "@/components/QueueSoundAlert";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { useConfirmation } from "@/components/useConfirmation";
 import { PinLock } from "@/components/PinLock";
@@ -87,6 +88,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
         </div>
 
         <QueueConnectionStatus {...queue} />
+      <QueueSoundAlert key={store_id} mode="server" items={queue.items} loading={queue.loading} error={queue.error} />
 
         {queue.loading ? (
           <div className="text-center py-10">목록을 불러오는 중...</div>

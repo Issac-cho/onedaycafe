@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 type Friend = { id: string; customer_type: "개척자" | "지체 손님"; customer_name: string; member_name: string };
 
 export function CustomerEntry({ storeId, initial, onContinue, disabled }: { storeId: string; initial: Customer | null; onContinue: (customer: Customer) => Promise<void>; disabled: boolean }) {
-  const [type, setType] = useState<"외부자" | "지인">(initial && initial.type !== "외부자" ? "지인" : "외부자");
+  const [type, setType] = useState<"외부자" | "지인">(initial?.type === "외부자" ? "외부자" : "지인");
   const [name, setName] = useState(initial?.name ?? "");
   const [busy, setBusy] = useState(false);
   const [matches, setMatches] = useState<Friend[]>([]);

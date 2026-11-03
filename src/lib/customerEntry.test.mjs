@@ -72,10 +72,23 @@ test("unregistered friends can continue with their name and chosen type, and edi
     app.name(" 새손님 "); await app.submit();
     assert.equal(app.customers.length, 0);
     await app.render().find(n => n.type === "button" && n.props.children === type).props.onClick();
+    if (type === "지체 손님") await app.submit();
     assert.equal(app.customers[0].type, type);
     assert.equal(app.customers[0].name, "새손님");
     assert.equal(app.customers[0].member, "");
     app.name("다른손님");
     assert.ok(!app.render().some(n => n.type === "button" && n.props.children === type));
   }
+});
+
+test("unregistered guest can enter a member name before continuing", async () => {
+  const app = mount({ data: [], error: null });
+  app.name("새손님"); await app.submit();
+  await app.render().find(n => n.type === "button" && n.props.children === "지체 손님").props.onClick();
+  assert.equal(app.customers.length, 0);
+  app.render().find(n => n.props.id === "new-guest-member").props.onChange({ target: { value: " 홍지체 " } });
+  await app.submit();
+  assert.equal(app.customers[0].member, "홍지체");
+  assert.equal(app.customers[0].name, "새손님");
+  assert.equal(app.calls.length, 1);
 });

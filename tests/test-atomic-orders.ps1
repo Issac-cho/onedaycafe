@@ -85,7 +85,9 @@ END; $$;
     if ($LASTEXITCODE -ne 0) { throw 'set menu tests failed' }
     & (Join-Path $pgBin 'psql.exe') @psqlArgs -f (Join-Path $PSScriptRoot 'menu-options.sql')
     if ($LASTEXITCODE -ne 0) { throw 'menu option tests failed' }
-    Write-Output 'Order, history, coupon, sets and menu options tests passed.'
+    & (Join-Path $pgBin 'psql.exe') @psqlArgs -f (Join-Path $PSScriptRoot 'guest-member-entry.sql')
+    if ($LASTEXITCODE -ne 0) { throw 'guest member entry tests failed' }
+    Write-Output 'Order, history, coupon, sets, menu options and guest member entry tests passed.'
 } finally {
     if ($started) {
         & (Join-Path $pgBin 'pg_ctl.exe') -D $testRoot -m fast -w stop | Out-Null

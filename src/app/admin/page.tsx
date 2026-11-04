@@ -143,7 +143,7 @@ export default function AdminDashboard() {
               <CardDescription>각 직원들은 회원가입 없이 아래 링크로 바로 업무 화면에 접속합니다.</CardDescription>
             </CardHeader>
             <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                 <div className="p-4 border rounded-lg bg-card">
                   <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
                     <span className="text-2xl">📝</span> 홀 주문 담당
@@ -171,6 +171,13 @@ export default function AdminDashboard() {
                   <p className="text-sm text-gray-500 mb-4">조리가 완료된 요리를 손님 테이블에 전달합니다.</p>
                   <a href={`${baseUrl}/${activeStore.id}/server`} target="_blank" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
                     {baseUrl}/{activeStore.id}/server
+                  </a>
+                </div>
+                <div className="p-4 border rounded-lg bg-card">
+                  <h3 className="font-bold text-lg mb-2 flex items-center gap-2"><span className="text-2xl">📒</span> 회계 담당</h3>
+                  <p className="text-sm text-gray-500 mb-4">접수된 주문과 결제 상세를 실시간으로 확인합니다. 주문 담당 PIN을 사용합니다.</p>
+                  <a href={`${baseUrl}/${activeStore.id}/accounting`} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline break-all block p-2 bg-blue-50 rounded">
+                    {baseUrl}/{activeStore.id}/accounting
                   </a>
                 </div>
               </div>

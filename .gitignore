@@ -46,3 +46,8 @@ AGENTS.md
 agents.md
 claude.md
 .claude.md
+
+# Local event manuals
+/docs/event-operation-guide.md
+/docs/kitchen-team-manual.md
+/docs/serving-team-manual.md

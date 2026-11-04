@@ -15,6 +15,25 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL("./accounting.ts", im
 }).outputText, { exports, require: name => { assert.equal(name, "./couponPayment"); return payment; } });
 const { fetchAccountingOrders, accountingDateRange, accountingTotals, accountingOrderAmount } = exports;
 
+test("all registered sale menus are paginated regardless of sold-out/hidden state, excluding deleted and component-only entries", async () => {
+  const rows = Array.from({ length: 501 }, (_, i) => ({ name: `메뉴${i}` }));
+  const filters = [], ranges = [];
+  const query = {
+    select(value) { assert.equal(value, "name"); return this; },
+    eq(...args) { filters.push(args); return this; }, neq(...args) { filters.push(["neq", ...args]); return this; },
+    order(value) { assert.equal(value, "id"); return this; },
+    range(start, end) { ranges.push([start, end]); this.start = start; this.end = end; return this; },
+    abortSignal() { return Promise.resolve({ data: rows.slice(this.start, this.end + 1), error: null }); },
+  };
+  const names = await exports.fetchAccountingMenus({ from(table) { assert.equal(table, "menus"); return query; } }, "store", new AbortController().signal);
+  assert.equal(names.length, 501); assert.deepEqual(ranges, [[0, 499], [500, 999]]);
+  assert.ok(filters.some(([key, value]) => key === "store_id" && value === "store"));
+  assert.ok(filters.some(([key, value]) => key === "is_deleted" && value === false));
+  assert.ok(filters.some(([op, key, value]) => op === "neq" && key === "menu_type" && value === "component"));
+  assert.ok(!filters.some(args => args.includes("is_hidden") || args.includes("is_sold_out")));
+  assert.equal(exports.accountingClipboardColumns([], [], names).length, 501);
+});
+
 test("orders are paginated past 1000 in receipt order and scoped to the store and Korean business day", async () => {
   const rows = Array.from({ length: 1201 }, (_, id) => ({ id }));
   const filters = [], ranges = [];

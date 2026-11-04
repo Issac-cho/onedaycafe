@@ -36,6 +36,18 @@ export function accountingDateRange(date: string) {
   return { start: start.toISOString(), end: new Date(start.getTime() + 86400000).toISOString() };
 }
 
+export async function fetchAccountingMenus(client: SupabaseClient, storeId: string, signal: AbortSignal) {
+  const names: string[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await client.from("menus").select("name")
+      .eq("store_id", storeId).eq("is_deleted", false).neq("menu_type", "component")
+      .order("id", { ascending: true }).range(offset, offset + 499).abortSignal(signal);
+    if (error) throw error;
+    names.push(...(data ?? []).map(menu => menu.name));
+    if (!data || data.length < 500) return names;
+  }
+}
+
 export async function fetchAccountingOrders(client: SupabaseClient, storeId: string, date: string, signal: AbortSignal) {
   const orders: AccountingOrder[] = [];
   for (let offset = 0; ; offset += 500) {
@@ -83,9 +95,12 @@ export function accountingPage(orders: AccountingOrder[], search: string, page: 
 
 export type AccountingClipboardColumn = { menu: string };
 
-export function accountingClipboardColumns(orders: AccountingOrder[], existing: AccountingClipboardColumn[] = []) {
+export function accountingClipboardColumns(orders: AccountingOrder[], existing: AccountingClipboardColumn[] = [], menus: string[] = []) {
   const columns = [...existing];
   const seen = new Set(columns.map(column => column.menu));
+  for (const name of [...menus].sort((a, b) => a.localeCompare(b))) {
+    if (!seen.has(name)) { seen.add(name); columns.push({ menu: name }); }
+  }
   for (const order of [...orders].sort((a, b) => a.order_number - b.order_number)) {
     for (const sale of [...order.sales].sort((a, b) => a.menu_name.localeCompare(b.menu_name))) {
       if (!seen.has(sale.menu_name)) { seen.add(sale.menu_name); columns.push({ menu: sale.menu_name }); }

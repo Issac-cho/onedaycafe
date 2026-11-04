@@ -9,10 +9,11 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 function setup() {
   const states = [], events = new EventTarget(), document = new EventTarget(), filters = [];
   document.visibilityState = "visible";
-  let effect, subscription, change, poll, resolveQuery, calls = 0, defer = false, fail = false, removed = false;
+  let effect, subscription, poll, resolveQuery, calls = 0, defer = false, fail = false, menuFail = false, removed = false;
+  const changes = {};
   let result = [{ id: "old" }];
   const channel = {
-    on(_type, filter, callback) { filters.push(filter); change = callback; return this; },
+    on(_type, filter, callback) { filters.push(filter); changes[filter.table] = callback; return this; },
     subscribe(callback) { subscription = callback; return this; },
   };
   const react = {
@@ -22,6 +23,11 @@ function setup() {
   const exports = {};
   vm.runInNewContext(code, {
     exports, require: name => name === "react" ? react : name === "./supabase" ? { supabase: { channel: () => channel, removeChannel() { removed = true; } } } : {
+      fetchAccountingMenus: async (_client, storeId, signal) => {
+        assert.equal(storeId, "store"); assert.ok(signal instanceof AbortSignal);
+        if (menuFail) throw new Error("menu lookup failed");
+        return ["커피", "붕어빵 2개"];
+      },
       fetchAccountingOrders: async (_client, storeId, date, signal) => {
         assert.equal(storeId, "store"); assert.equal(date, "2026-11-04"); assert.ok(signal instanceof AbortSignal);
         calls++;
@@ -37,9 +43,9 @@ function setup() {
   const cleanup = effect();
   return { states, filters, document, hook, cleanup,
     get calls() { return calls; }, get removed() { return removed; }, get polling() { return !!poll; },
-    change: () => change(), poll: () => poll(), subscription: value => subscription(value),
+    change: () => changes.orders(), menuChange: () => changes.menus(), poll: () => poll(), subscription: value => subscription(value),
     event: name => events.dispatchEvent(new Event(name)),
-    fail: value => { fail = value; }, result: value => { result = value; },
+    fail: value => { fail = value; }, menuFail: value => { menuFail = value; }, result: value => { result = value; },
     defer() { defer = true; }, resolve(value) { defer = false; resolveQuery(value); },
   };
 }
@@ -48,13 +54,25 @@ test("committed order notifications, reconnects, polling and focus recover the a
   const app = setup(); await settle();
   assert.equal(app.calls, 1);
   assert.equal(app.filters[0].table, "orders"); assert.equal(app.filters[0].filter, "store_id=eq.store");
-  for (const trigger of [app.change, app.poll, () => app.subscription("SUBSCRIBED"), () => app.event("online"), () => app.event("focus"), app.hook.refresh]) {
+  assert.equal(app.states[5].join(","), "커피,붕어빵 2개");
+  for (const trigger of [app.change, app.menuChange, app.poll, () => app.subscription("SUBSCRIBED"), () => app.event("online"), () => app.event("focus"), app.hook.refresh]) {
     const before = app.calls; trigger(); await settle(); assert.equal(app.calls, before + 1);
   }
   app.subscription("CHANNEL_ERROR"); assert.equal(app.states[3], false);
   app.subscription("SUBSCRIBED"); await settle(); app.event("offline"); assert.equal(app.states[3], false);
   app.document.visibilityState = "hidden"; const before = app.calls; app.poll(); assert.equal(app.calls, before);
   app.cleanup(); assert.equal(app.polling, false); assert.equal(app.removed, true);
+});
+
+test("catalog failures keep the prior orders, headers and timestamp instead of publishing incomplete data", async () => {
+  const app = setup(); await settle();
+  const updated = app.states[4];
+  app.result([{ id: "new" }]); app.menuFail(true); app.poll(); await settle();
+  assert.equal(app.states[0][0].id, "old"); assert.equal(app.states[4], updated);
+  assert.equal(app.states[5].join(","), "커피,붕어빵 2개"); assert.ok(app.states[2]);
+  app.menuFail(false); app.poll(); await settle();
+  assert.equal(app.states[0][0].id, "new"); assert.equal(app.states[2], null);
+  app.cleanup();
 });
 
 test("a failed refresh retains previous orders and timestamp until a successful recovery", async () => {

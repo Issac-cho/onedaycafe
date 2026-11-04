@@ -81,13 +81,65 @@ export function accountingPage(orders: AccountingOrder[], search: string, page: 
   return { orders: filtered.slice(start, start + 30), total: filtered.length, pages, current, start };
 }
 
-export const accountingClipboardHeaders = ["주문번호", "접수 시각", "테이블", "손님유형", "손님이름", "소개한 분", "메뉴·옵션·수량·금액", "결제수단", "주문금액", "쿠폰 사용", "필요 현금", "받은 현금", "쿠폰 적립", "주문 상태"].join("\t");
+export type AccountingClipboardColumn = { menu: string };
 
-export function accountingOrderTsv(order: AccountingOrder) {
+export function accountingClipboardColumns(orders: AccountingOrder[], existing: AccountingClipboardColumn[] = []) {
+  const columns = [...existing];
+  const seen = new Set(columns.map(column => column.menu));
+  for (const order of [...orders].sort((a, b) => a.order_number - b.order_number)) {
+    for (const sale of [...order.sales].sort((a, b) => a.menu_name.localeCompare(b.menu_name))) {
+      if (!seen.has(sale.menu_name)) { seen.add(sale.menu_name); columns.push({ menu: sale.menu_name }); }
+    }
+  }
+  return columns;
+}
+
+export function parseAccountingClipboardColumns(value: string | null): AccountingClipboardColumn[] {
+  if (!value) return [];
+  const columns: unknown = JSON.parse(value);
+  if (!Array.isArray(columns) || !columns.every(column => column && typeof column.menu === "string" && !("options" in column))) throw new Error("잘못된 엑셀 열 설정");
+  return columns;
+}
+
+function clipboardCell(value: string | number | null) {
+  if (value == null) return "미기록";
+  if (typeof value === "number") return String(value);
+  // 한 주문은 한 행으로 붙이고, 입력된 이름·테이블 등이 수식으로 실행되지 않게 한다.
+  const text = value.replace(/[\t\r\n]+/g, " ");
+  return /^\s*[=+\-@]/.test(text) ? "'" + text : text;
+}
+
+export function accountingClipboardHeaders(columns: AccountingClipboardColumn[]) {
+  return ["주문번호", "접수 시각", "테이블", "손님유형", "손님이름", "소개한 분", "메뉴·옵션·수량", "결제수단", "주문금액", "쿠폰 사용", "필요 현금", "받은 현금", "쿠폰 적립", "주문 상태",
+    ...columns.map(column => column.menu),
+  ].map(clipboardCell).join("\t");
+}
+
+function accountingOptionLabel(sale: AccountingSale) {
+  const values = (text: string) => text.split(", ").map(group => {
+    const colon = group.indexOf(": ");
+    return colon < 0 ? group : group.slice(colon + 2);
+  }).join(", ").replace(/\s*\/\s*/g, "/");
+  const summary = sale.option_summary || "";
+  if (!sale.components?.length) return values(summary);
+  return summary.split(" · ").map(component => {
+    const colon = component.indexOf(": ");
+    return colon < 0 ? values(component) : `${component.slice(0, colon)}: ${values(component.slice(colon + 2))}`;
+  }).join(", ");
+}
+
+export function accountingOrderTsv(order: AccountingOrder, columns: AccountingClipboardColumn[]) {
+  const counts = new Map<string, Map<string, { label: string; quantity: number }>>();
+  for (const sale of order.sales) {
+    let options = counts.get(sale.menu_name);
+    if (!options) { options = new Map(); counts.set(sale.menu_name, options); }
+    const summary = sale.option_summary || "";
+    options.set(summary, { label: accountingOptionLabel(sale), quantity: (options.get(summary)?.quantity ?? 0) + sale.quantity });
+  }
+  if (accountingClipboardColumns([order], columns).length !== columns.length) throw new Error("메뉴 열이 누락되었습니다. 열 제목을 먼저 갱신해 주세요.");
   const menus = order.sales.map(sale => [
-    `${sale.menu_name} × ${sale.quantity} (단가 ${sale.menu_price}원, 금액 ${sale.menu_price * sale.quantity}원)`,
-    sale.option_summary ? `옵션: ${sale.option_summary}` : "",
-    sale.components?.length ? `세트 1개 구성: ${sale.components.map(part => `${part.menu_name} × ${part.quantity}`).join(" / ")}` : "",
+    `${sale.menu_name} × ${sale.quantity}`,
+    accountingOptionLabel(sale),
   ].filter(Boolean).join(" · ")).join(" / ");
   return [
     order.order_number,
@@ -95,11 +147,11 @@ export function accountingOrderTsv(order: AccountingOrder) {
     order.table_number, customerTypeLabel(order.customer_type ?? "미기록"), order.customer_name ?? "", order.member_name ?? "",
     menus, order.payment_method, accountingOrderAmount(order), order.coupon_used, order.cash_due, order.cash_received, order.coupon_credited,
     order.status === "completed" ? "주문 완료" : "진행 중",
-  ].map(value => {
-    if (value == null) return "미기록";
-    if (typeof value === "number") return String(value);
-    // 한 주문은 한 행으로 붙이고, 입력된 이름·테이블 등이 수식으로 실행되지 않게 한다.
-    const text = value.replace(/[\t\r\n]+/g, " ");
-    return /^\s*[=+\-@]/.test(text) ? "'" + text : text;
-  }).join("\t");
+    ...columns.map(column => {
+      const options = counts.get(column.menu);
+      if (!options) return 0;
+      if (options.size === 1 && options.has("")) return options.get("")!.quantity;
+      return [...options].sort(([a], [b]) => a.localeCompare(b)).map(([, { label, quantity }]) => `${label || "기본"} : ${quantity}`).join(", ");
+    }),
+  ].map(clipboardCell).join("\t");
 }

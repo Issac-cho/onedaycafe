@@ -11,7 +11,7 @@ vm.runInNewContext(compile("./couponPayment.ts"), { exports: payment });
 vm.runInNewContext(compile("./accounting.ts"), { exports: accounting, require: () => payment });
 
 function mount() {
-  const slots = [], writes = [];
+  const slots = [], writes = [], storage = new Map();
   let cursor = 0, failure = false;
   const react = {
     useState(initial) {
@@ -36,6 +36,7 @@ function mount() {
   vm.runInNewContext(compile("../components/AccountingDashboard.tsx"), {
     exports, require: name => dependencies[name] ?? require(name),
     navigator: { clipboard: { async writeText(text) { if (failure) throw new Error("denied"); writes.push(text); } } },
+    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
   });
   function flatten(node, list = []) {
     if (Array.isArray(node)) { node.forEach(child => flatten(child, list)); return list; }
@@ -45,7 +46,7 @@ function mount() {
   const Ledger = flatten(exports.AccountingDashboard({ storeId: "store" })).find(node => node.type?.name === "AccountingLedger").type;
   slots.length = 0;
   const render = () => { cursor = 0; return flatten(Ledger({ storeId: "store", date: "2026-11-04" })); };
-  return { render, writes, table: () => render().find(node => node.type === exports.AccountingTable), fail() { failure = true; } };
+  return { render, writes, queue, table: () => render().find(node => node.type === exports.AccountingTable), fail() { failure = true; } };
 }
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
@@ -65,10 +66,41 @@ test("order and header copy write matching TSV; denied clipboard access never di
   const app = mount();
   const table = app.table();
   table.props.onCopy(table.props.orders[0]); await settle();
-  assert.equal(app.writes[0].split("\t")[0], "65"); assert.equal(app.table().props.copiedId, "order-65");
+  assert.equal(app.writes.length, 0);
+  assert.ok(app.render().some(n => n.props.role === "alert" && n.props.children.includes("열 제목 복사")));
   app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
-  assert.equal(app.writes[1], accounting.accountingClipboardHeaders);
+  assert.equal(app.writes[0], accounting.accountingClipboardHeaders(accounting.accountingClipboardColumns(app.queue.orders)));
+  table.props.onCopy(table.props.orders[0]); await settle();
+  assert.equal(app.writes[1].split("\t")[0], "65"); assert.equal(app.table().props.copiedId, "order-65");
   app.fail(); app.table().props.onCopy(table.props.orders[1]); await settle();
   assert.equal(app.writes.length, 2); assert.equal(app.table().props.copiedId, null);
   assert.ok(app.render().some(n => n.props.role === "alert" && n.props.children.includes("복사하지 못했습니다")));
+});
+
+test("a new menu is blocked until headers are extended, preserving existing spreadsheet column positions", async () => {
+  const app = mount();
+  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
+  const oldHeaders = app.writes[0];
+  const added = { ...app.queue.orders[0], id: "new", order_number: 66, sales: [{ ...app.queue.orders[0].sales[0], menu_name: "새 메뉴" }] };
+  app.queue.orders.push(added);
+  app.table().props.onCopy(added); await settle();
+  assert.equal(app.writes.length, 1);
+  assert.ok(app.render().some(n => n.props.role === "alert" && n.props.children.includes("새 메뉴 열")));
+  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
+  assert.equal(app.writes[1], oldHeaders + "\t새 메뉴");
+  app.table().props.onCopy(added); await settle();
+  assert.equal(app.writes[2].split("\t").slice(14).join(","), "0,1");
+});
+
+test("new options on an existing menu copy into the same column without updating the headers", async () => {
+  const app = mount();
+  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
+  const added = { ...app.queue.orders[0], id: "new-options", order_number: 66, sales: [
+    { ...app.queue.orders[0].sales[0], option_summary: "온도: 아이스", quantity: 2 },
+    { ...app.queue.orders[0].sales[0], option_summary: "온도: 핫", quantity: 1 },
+  ] };
+  app.queue.orders.push(added); app.table().props.onCopy(added); await settle();
+  assert.equal(app.writes.length, 2);
+  assert.equal(app.writes[0].split("\t").at(-1), "커피");
+  assert.equal(app.writes[1].split("\t").at(-1), "아이스 : 2, 핫 : 1");
 });

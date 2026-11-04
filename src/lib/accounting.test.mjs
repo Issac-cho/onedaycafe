@@ -98,13 +98,72 @@ test("clipboard data has one order per row, numeric payments and columns matchin
     sales: [{ menu_name: "필라프 세트", menu_price: 15000, quantity: 2, option_summary: "음료: 콜라\n사이다", components: [{ menu_name: "필라프", quantity: 1 }] },
       { menu_name: "크로플", menu_price: 5000, quantity: 1, option_summary: "", components: [] }],
   };
-  const text = exports.accountingOrderTsv(order), cells = text.split("\t");
-  assert.equal(cells.length, exports.accountingClipboardHeaders.split("\t").length);
-  assert.equal(cells.length, 14); assert.ok(!/[\r\n]/.test(text));
+  const columns = exports.accountingClipboardColumns([order]);
+  const text = exports.accountingOrderTsv(order, columns), cells = text.split("\t");
+  assert.equal(cells.length, exports.accountingClipboardHeaders(columns).split("\t").length);
+  assert.equal(cells.length, 16); assert.ok(!/[\r\n]/.test(text));
   assert.equal(cells[0], "123"); assert.ok(cells[1].startsWith("2026-11-04 00:10:00"));
   assert.equal(cells[2], "'=1+1"); assert.equal(cells[3], "지인 소개"); assert.equal(cells[4], "손님 이름 둘째줄"); assert.equal(cells[5], "'@소개자");
   assert.ok(cells[6].includes("필라프 세트 × 2")); assert.ok(cells[6].includes("크로플 × 1")); assert.ok(cells[6].includes("음료: 콜라 사이다"));
   assert.deepEqual(cells.slice(8, 13), ["35000", "5000", "30000", "35000", "5000"]);
   assert.equal(cells[13], "주문 완료");
-  assert.equal(exports.accountingOrderTsv({ ...order, cash_received: null }).split("\t")[11], "미기록");
+  assert.ok(!cells[6].includes("단가")); assert.ok(!cells[6].includes("금액")); assert.ok(!cells[6].includes("세트 1개 구성"));
+  assert.equal(exports.accountingOrderTsv({ ...order, cash_received: null }, columns).split("\t")[11], "미기록");
+});
+
+test("each menu has one column with option counts inside its cell and sets stay whole", () => {
+  const makeSale = (name, options, quantity) => ({ menu_name: name, option_summary: options, quantity, menu_price: 5000, components: [] });
+  const order = { order_number: 1, created_at: "2026-11-04T01:00:00Z", sales: [
+    makeSale("아메리카노", "온도: 아이스", 2), makeSale("아메리카노", "온도: 핫", 1), makeSale("아메리카노", "온도: 아이스", 3),
+    { ...makeSale("필라프 세트", "탄산: 종류: 콜라", 2), components: [{ menu_name: "필라프", quantity: 1 }, { menu_name: "콜라", quantity: 1 }] },
+  ] };
+  const columns = exports.accountingClipboardColumns([order]);
+  assert.equal(columns.length, 2);
+  assert.ok(!columns.some(c => c.menu === "필라프" || c.menu === "콜라"));
+  const quantities = exports.accountingOrderTsv(order, columns).split("\t").slice(14);
+  assert.equal(quantities[columns.findIndex(c => c.menu === "아메리카노")], "아이스 : 5, 핫 : 1");
+  assert.equal(quantities[columns.findIndex(c => c.menu === "필라프 세트")], "탄산: 콜라 : 2");
+  assert.equal(exports.accountingClipboardHeaders(columns).split("\t").slice(14).join(","), "아메리카노,필라프 세트");
+  const newer = { ...order, order_number: 2, sales: [makeSale("가장 나중에 추가된 메뉴", "", 1)] };
+  const expanded = exports.accountingClipboardColumns([newer, order], columns);
+  assert.equal(JSON.stringify(expanded.slice(0, 2)), JSON.stringify(columns));
+  assert.equal(expanded[2].menu, "가장 나중에 추가된 메뉴");
+  assert.equal(exports.accountingOrderTsv(order, expanded).split("\t").at(-1), "0");
+  assert.throws(() => exports.accountingOrderTsv(newer, columns), /메뉴 열이 누락/);
+  assert.equal(JSON.stringify(exports.parseAccountingClipboardColumns(JSON.stringify(expanded))), JSON.stringify(expanded));
+  assert.throws(() => exports.parseAccountingClipboardColumns('[{"menu":1}]'), /잘못된/);
+});
+
+test("clipboard option labels omit group names while keeping set component names and combination counts", () => {
+  const set = { menu_name: "필라프 + 탄산", menu_price: 15000, quantity: 1, components: [{ menu_name: "필라프", quantity: 1 }, { menu_name: "탄산음료 1개", quantity: 1 }] };
+  const order = { order_number: 1, created_at: "2026-11-04T01:00:00Z", sales: [
+    { ...set, option_summary: "필라프: 종류: 게살 · 탄산음료 1개: 종류: 사이다" },
+    { ...set, option_summary: "필라프: 종류: 게살 · 탄산음료 1개: 종류: 콜라", quantity: 2 },
+    { menu_name: "라떼", menu_price: 5000, quantity: 1, option_summary: "온도: 아이스, 시럽: 바닐라", components: [] },
+  ] };
+  const columns = exports.accountingClipboardColumns([order]);
+  const cells = exports.accountingOrderTsv(order, columns).split("\t");
+  const setCell = cells[14 + columns.findIndex(c => c.menu === set.menu_name)];
+  assert.ok(setCell.includes("필라프: 게살, 탄산음료 1개: 사이다 : 1"));
+  assert.ok(setCell.includes("필라프: 게살, 탄산음료 1개: 콜라 : 2"));
+  assert.equal(cells[14 + columns.findIndex(c => c.menu === "라떼")], "아이스, 바닐라 : 1");
+  for (const index of [6, 14, 15]) {
+    assert.ok(!cells[index].includes("종류:")); assert.ok(!cells[index].includes("온도:")); assert.ok(!cells[index].includes("시럽:"));
+  }
+});
+
+test("two-choice fish bread combinations are counted as bundles within a single menu cell", () => {
+  const order = { order_number: 1, created_at: "2026-11-04T01:00:00Z", sales: [
+    { menu_name: "붕어빵 2개", menu_price: 5000, quantity: 1, option_summary: "맛: 팥 / 팥", components: [] },
+    { menu_name: "붕어빵 2개", menu_price: 5000, quantity: 2, option_summary: "맛: 팥 / 슈크림", components: [] },
+    { menu_name: "크로플", menu_price: 5000, quantity: 3, option_summary: "", components: [] },
+  ] };
+  const columns = exports.accountingClipboardColumns([order]);
+  const cells = exports.accountingOrderTsv(order, columns).split("\t").slice(14);
+  const fish = cells[columns.findIndex(c => c.menu === "붕어빵 2개")];
+  assert.ok(fish.includes("팥/팥 : 1")); assert.ok(fish.includes("팥/슈크림 : 2"));
+  assert.equal(cells[columns.findIndex(c => c.menu === "크로플")], "3");
+  assert.equal(exports.accountingOrderAmount(order), 30000);
+  const updated = { ...order, sales: [...order.sales, { ...order.sales[0], option_summary: "맛: 피자 / 피자" }] };
+  assert.equal(exports.accountingClipboardColumns([updated], columns).length, columns.length);
 });

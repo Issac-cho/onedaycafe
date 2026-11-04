@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { customerTypeLabel } from "@/lib/couponPayment";
-import { accountingClipboardHeaders, accountingOrderAmount, accountingOrderTsv, accountingPage, accountingTotals, koreaToday, type AccountingOrder } from "@/lib/accounting";
+import { accountingClipboardColumns, accountingClipboardHeaders, accountingOrderAmount, accountingOrderTsv, accountingPage, accountingTotals, koreaToday, parseAccountingClipboardColumns, type AccountingOrder } from "@/lib/accounting";
 import { useAccountingOrders } from "@/lib/useAccountingOrders";
 
 const won = (value: number | null) => value == null ? "미기록" : `${value.toLocaleString()}원`;
@@ -47,11 +47,20 @@ function AccountingLedger({ storeId, date }: { storeId: string; date: string }) 
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copying, setCopying] = useState(false);
   const copyLock = useRef(false);
-  const copy = async (text: string, id: string) => {
+  const copy = async (order?: AccountingOrder) => {
     if (copyLock.current) return;
     copyLock.current = true; setCopying(true); setCopiedId(null); setCopyError(null);
-    try { await navigator.clipboard.writeText(text); setCopiedId(id); }
-    catch { setCopyError("복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하고 다시 눌러 주세요."); }
+    try {
+      const key = `accountingClipboardColumns:v3:${storeId}`;
+      const saved = parseAccountingClipboardColumns(localStorage.getItem(key));
+      if (order && !saved.length) { setCopyError("먼저 ‘엑셀 열 제목 복사’를 눌러 시트 첫 행에 붙여 주세요."); return; }
+      if (order && accountingClipboardColumns([order], saved).length !== saved.length) { setCopyError("새 메뉴 열이 필요합니다. ‘엑셀 열 제목 복사’를 눌러 시트 첫 행을 갱신한 뒤 주문을 복사해 주세요. 새 열은 오른쪽 끝에 추가됩니다."); return; }
+      const columns = order ? saved : accountingClipboardColumns(queue.orders, saved);
+      await navigator.clipboard.writeText(order ? accountingOrderTsv(order, columns) : accountingClipboardHeaders(columns));
+      if (!order) localStorage.setItem(key, JSON.stringify(columns));
+      setCopiedId(order?.id ?? "headers");
+    }
+    catch { setCopyError("복사하지 못했습니다. 브라우저의 클립보드·사이트 저장소 권한을 확인하고 다시 눌러 주세요."); }
     finally { copyLock.current = false; setCopying(false); }
   };
   const totals = accountingTotals(queue.orders);
@@ -66,15 +75,15 @@ function AccountingLedger({ storeId, date }: { storeId: string; date: string }) 
     ].map(([title, value]) => <div key={title} className="rounded-lg border p-3"><p className="text-xs text-gray-600">{title}</p><p className="mt-1 break-words text-lg font-bold">{value}</p></div>)}</div>}
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="w-full space-y-2 sm:max-w-sm"><Label htmlFor="accounting-search">주문 검색</Label><Input id="accounting-search" placeholder="주문번호, 테이블, 손님 또는 소개한 분" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
-      <Button type="button" variant="outline" disabled={copying} onClick={() => void copy(accountingClipboardHeaders, "headers")}>{copiedId === "headers" ? "열 제목 복사됨" : "엑셀 열 제목 복사"}</Button>
+      <Button type="button" variant="outline" disabled={copying || queue.loading} onClick={() => void copy()}>{copiedId === "headers" ? "열 제목 복사됨" : "엑셀 열 제목 복사"}</Button>
     </div>
-    <p className="text-xs text-gray-600">처음에는 ‘엑셀 열 제목 복사’를 첫 행에 붙이고, 각 주문의 ‘복사’를 다음 빈 행에 붙여 주세요. 주문 한 건이 한 행으로 입력되며 금액은 숫자로 복사됩니다.</p>
+    <p className="text-xs text-gray-600">‘엑셀 열 제목 복사’를 시트 첫 행에 붙인 뒤 주문을 복사하세요. 오른쪽 메뉴별 열에 옵션 조합과 판매 수량이 기록됩니다. 예: 팥/팥 : 1, 팥/슈크림 : 2. 세트 구성품은 나누지 않습니다. 새 메뉴가 생기면 열 제목을 다시 복사해 첫 행을 갱신하세요. 기존 열 위치는 유지되고 새 열은 끝에 추가됩니다.</p>
     {copyError && <p role="alert" className="text-sm text-red-700">{copyError}</p>}
     {copiedId && <p role="status" className="text-sm text-blue-700">{copiedId === "headers" ? "열 제목을 복사했습니다." : "주문을 복사했습니다. 스프레드시트의 빈 행에 붙여넣으세요."}</p>}
     {queue.loading ? <p className="py-10 text-center text-gray-500">주문 내역을 불러오는 중...</p>
       : visible.orders.length ? <>
         <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-gray-600">전체 {visible.total}건 중 {visible.start + 1}–{visible.start + visible.orders.length}건 · 주문번호 내림차순</p><nav aria-label="주문 페이지" className="flex items-center gap-2"><Button type="button" variant="outline" disabled={visible.current === 1} onClick={() => setPage(1)}>최신</Button><Button type="button" variant="outline" disabled={visible.current === 1} onClick={() => setPage(visible.current - 1)}>이전</Button><span className="text-sm">{visible.current} / {visible.pages}</span><Button type="button" variant="outline" disabled={visible.current === visible.pages} onClick={() => setPage(visible.current + 1)}>다음</Button></nav></div>
-        <AccountingTable orders={visible.orders} onCopy={order => void copy(accountingOrderTsv(order), order.id)} copiedId={copiedId} copying={copying} />
+        <AccountingTable orders={visible.orders} onCopy={order => void copy(order)} copiedId={copiedId} copying={copying} />
       </>
         : <p className="rounded-lg border border-dashed p-10 text-center text-gray-500">{queue.error ? "주문 정보를 확인할 수 없습니다. 다시 조회해 주세요." : term ? "검색 결과가 없습니다." : "선택한 기간에 접수된 주문이 없습니다."}</p>}
     <p className="text-xs text-gray-600">합계는 선택한 기간 전체 기준이며 검색으로 바뀌지 않습니다. 주문금액은 메뉴 판매금액이고, 초과 수납액은 쿠폰 적립에 포함됩니다. 현금 항목에는 계좌이체 등 현금으로 접수한 결제도 포함됩니다. 관리자 쿠폰 등록·추가 충전은 이 화면에 포함되지 않습니다. 미기록 값이 있는 합계는 ‘미기록’으로 표시합니다.</p>

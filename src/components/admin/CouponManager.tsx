@@ -102,8 +102,8 @@ export function CouponManager({ storeId }: { storeId: string }) {
       <fieldset disabled={busy || !!pending || !restored} className="space-y-3 rounded-lg border p-4">
         <h3 className="font-semibold">{selected ? "추가 충전" : "새 계정 등록"}</h3>
         <div className="flex flex-wrap gap-2">{(["개척자", "지체 손님", "외부자"] as const).map(value => <Button key={value} type="button" disabled={!!selected} variant={type === value ? "default" : "outline"} onClick={() => { setType(value); setName(""); setMember(""); }}>{customerTypeLabel(value)}</Button>)}</div>
-        <div><Label htmlFor="admin-customer">{type === "개척자" ? "졸업생 이름" : "손님 이름"}</Label><Input id="admin-customer" value={name} onChange={e => setName(e.target.value)} required readOnly={!!selected} maxLength={100} /></div>
-        {type === "지체 손님" && <div className="space-y-2"><Label htmlFor="admin-member">소개한 분 이름 (표시용)</Label><Input id="admin-member" value={member} onChange={e => setMember(e.target.value)} maxLength={100} />{selected && <Button type="button" variant="outline" onClick={async () => {
+        <div className="grid gap-2"><Label htmlFor="admin-customer">{type === "개척자" ? "졸업생 이름" : "손님 이름"}</Label><Input id="admin-customer" value={name} onChange={e => setName(e.target.value)} required readOnly={!!selected} maxLength={100} /></div>
+        {type === "지체 손님" && <div className="grid gap-2"><Label htmlFor="admin-member">소개한 분 이름 (표시용)</Label><Input id="admin-member" value={member} onChange={e => setMember(e.target.value)} maxLength={100} />{selected && <Button type="button" variant="outline" onClick={async () => {
           if (locked.current) return;
           locked.current = true; setBusy(true);
           try {
@@ -113,7 +113,7 @@ export function CouponManager({ storeId }: { storeId: string }) {
           } catch { alert("소개한 분 이름을 저장하지 못했습니다. 다시 시도해 주세요."); }
           finally { locked.current = false; setBusy(false); }
         }}>소개한 분 이름 저장</Button>}</div>}
-        <div><Label htmlFor="admin-amount">{selected ? "추가 충전액 (원)" : "최초 쿠폰 금액 (원)"}</Label><Input id="admin-amount" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
+        <div className="grid gap-2"><Label htmlFor="admin-amount">{selected ? "추가 충전액 (원)" : "최초 쿠폰 금액 (원)"}</Label><Input id="admin-amount" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
         <p className="text-xs text-gray-500">동명이인은 홍길동, 홍길동2처럼 구분하여 등록하세요.</p>
         <div className="flex gap-2"><Button type="submit">{selected ? "추가 충전" : "등록"}</Button>{selected && <Button type="button" variant="outline" onClick={() => { setSelected(null); setName(""); setMember(""); setAmount(""); }}>새 계정 등록으로</Button>}</div>
       </fieldset>

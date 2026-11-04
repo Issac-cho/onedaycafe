@@ -6,10 +6,14 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
+const paymentExports = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL("./couponPayment.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText, { exports: paymentExports });
 const exports = {};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL("./orderCsv.ts", import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-}).outputText, { exports });
+}).outputText, { exports, require: name => { assert.equal(name, "./couponPayment"); return paymentExports; } });
 const { fetchCsvOrderItems, buildOrderCsv } = exports;
 const row = id => ({ id: String(id), quantity: 2, menu_name: `커피 ${id}`, menu_price: 3000, status: "served",
   menu: null, order: { order_number: id + 1, table_number: "3번", payment_method: "현금", created_at: "2026-10-30T01:00:00Z" } });
@@ -66,6 +70,15 @@ test("order coupon and cash totals occur only on the first menu row", () => {
   const lines = buildOrderCsv([{ ...row(0), order }, { ...row(1), order }]).split("\r\n");
   assert.ok(lines[1].endsWith('1000,11000,15000,4000,"",""'));
   assert.ok(lines[2].endsWith('"","","","","",""'));
+  assert.ok(lines[1].includes('"기타","홍길동"'));
+});
+
+test("CSV displays the arrival names for existing account types", () => {
+  for (const [stored, label] of [["개척자", "DSM 졸업생"], ["지체 손님", "지인 소개"]]) {
+    const item = row(0);
+    item.order.customer_type = stored;
+    assert.ok(buildOrderCsv([item]).includes(`"${label}"`));
+  }
 });
 
 test("sets are exported as sales rows at the set price with per-set component snapshots", async () => {

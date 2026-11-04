@@ -101,25 +101,25 @@ export function CouponManager({ storeId }: { storeId: string }) {
     }}>
       <fieldset disabled={busy || !!pending || !restored} className="space-y-3 rounded-lg border p-4">
         <h3 className="font-semibold">{selected ? "추가 충전" : "새 계정 등록"}</h3>
-        <div className="flex flex-wrap gap-2">{(["외부자", "개척자", "지체 손님"] as const).map(value => <Button key={value} type="button" disabled={!!selected} variant={type === value ? "default" : "outline"} onClick={() => { setType(value); setName(""); setMember(""); }}>{customerTypeLabel(value)}</Button>)}</div>
-        <div><Label htmlFor="admin-customer">{type === "개척자" ? "개척자 이름" : "손님 이름"}</Label><Input id="admin-customer" value={name} onChange={e => setName(e.target.value)} required readOnly={!!selected} maxLength={100} /></div>
-        {type === "지체 손님" && <div className="space-y-2"><Label htmlFor="admin-member">지체 이름 (표시용)</Label><Input id="admin-member" value={member} onChange={e => setMember(e.target.value)} maxLength={100} />{selected && <Button type="button" variant="outline" onClick={async () => {
+        <div className="flex flex-wrap gap-2">{(["개척자", "지체 손님", "외부자"] as const).map(value => <Button key={value} type="button" disabled={!!selected} variant={type === value ? "default" : "outline"} onClick={() => { setType(value); setName(""); setMember(""); }}>{customerTypeLabel(value)}</Button>)}</div>
+        <div><Label htmlFor="admin-customer">{type === "개척자" ? "졸업생 이름" : "손님 이름"}</Label><Input id="admin-customer" value={name} onChange={e => setName(e.target.value)} required readOnly={!!selected} maxLength={100} /></div>
+        {type === "지체 손님" && <div className="space-y-2"><Label htmlFor="admin-member">소개한 분 이름 (표시용)</Label><Input id="admin-member" value={member} onChange={e => setMember(e.target.value)} maxLength={100} />{selected && <Button type="button" variant="outline" onClick={async () => {
           if (locked.current) return;
           locked.current = true; setBusy(true);
           try {
             const { error } = await supabase.rpc("set_coupon_member_name", { p_account_id: selected.id, p_member_name: member.trim() }).abortSignal(AbortSignal.timeout(10000));
             if (error) throw error;
-            await fetchAccounts(); alert("지체 이름을 저장했습니다. 쿠폰 잔액은 변경되지 않았습니다.");
-          } catch { alert("지체 이름을 저장하지 못했습니다. 다시 시도해 주세요."); }
+            await fetchAccounts(); alert("소개한 분 이름을 저장했습니다. 쿠폰 잔액은 변경되지 않았습니다.");
+          } catch { alert("소개한 분 이름을 저장하지 못했습니다. 다시 시도해 주세요."); }
           finally { locked.current = false; setBusy(false); }
-        }}>지체 이름 저장</Button>}</div>}
+        }}>소개한 분 이름 저장</Button>}</div>}
         <div><Label htmlFor="admin-amount">{selected ? "추가 충전액 (원)" : "최초 쿠폰 금액 (원)"}</Label><Input id="admin-amount" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value)} required /></div>
         <p className="text-xs text-gray-500">동명이인은 홍길동, 홍길동2처럼 구분하여 등록하세요.</p>
         <div className="flex gap-2"><Button type="submit">{selected ? "추가 충전" : "등록"}</Button>{selected && <Button type="button" variant="outline" onClick={() => { setSelected(null); setName(""); setMember(""); setAmount(""); }}>새 계정 등록으로</Button>}</div>
       </fieldset>
     </form>
     <div className="flex gap-2"><Input aria-label="쿠폰 계정 이름 검색" placeholder="손님 이름 검색" value={search} onChange={e => setSearch(e.target.value)} /><Button variant="outline" disabled={busy} onClick={() => void fetchAccounts()}>새로고침</Button></div>
-    <div className="max-h-80 overflow-y-auto divide-y">{accounts.filter(a => a.customer_name.includes(search.trim())).map(a => <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="font-medium">{customerTypeLabel(a.customer_type)} · {a.customer_name}{a.customer_type === "지체 손님" ? ` · 지체: ${a.member_name || "미등록"}` : ""}</p><p className="text-sm">잔액 {a.balance.toLocaleString()}원</p></div><Button variant="outline" disabled={busy || !!pending || !restored} onClick={() => { setSelected(a); setType(a.customer_type); setName(a.customer_name); setMember(a.member_name); setAmount(""); }}>추가 충전</Button></div>)}</div>
+    <div className="max-h-80 overflow-y-auto divide-y">{accounts.filter(a => a.customer_name.includes(search.trim())).map(a => <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="font-medium">{customerTypeLabel(a.customer_type)} · {a.customer_name}{a.customer_type === "지체 손님" ? ` · 소개: ${a.member_name || "미등록"}` : ""}</p><p className="text-sm">잔액 {a.balance.toLocaleString()}원</p></div><Button variant="outline" disabled={busy || !!pending || !restored} onClick={() => { setSelected(a); setType(a.customer_type); setName(a.customer_name); setMember(a.member_name); setAmount(""); }}>추가 충전</Button></div>)}</div>
     {confirmationDialog}
   </div>;
 }

@@ -9,6 +9,12 @@ vm.runInNewContext(require("typescript").transpileModule(readFileSync(new URL(".
   compilerOptions: { module: 1, target: 7 },
 }).outputText, { exports });
 const { couponPayment, parseWon } = exports;
+test("arrival labels preserve legacy database values", () => {
+  assert.equal(exports.customerTypeLabel("개척자"), "DSM 졸업생");
+  assert.equal(exports.customerTypeLabel("지체 손님"), "지인 소개");
+  assert.equal(exports.customerTypeLabel("외부자"), "기타");
+  assert.equal(exports.customerTypeLabel("미기록"), "미기록");
+});
 test("cash blank means exact payment, overpayment becomes credit, explicit zero is not blank", () => {
   assert.equal(couponPayment(8000, 0, "현금", "", "").received, 8000);
   const cash = couponPayment(8000, 0, "현금", "", "10000");

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { customerTypeLabel } from "./couponPayment";
 
 export type CsvOrderItem = {
   id: string;
@@ -51,7 +52,7 @@ export function buildOrderCsv(items: CsvOrderItem[]) {
       item.order.order_number, item.order.table_number, item.order.payment_method,
       item.menu_name || item.menu?.name || "삭제된 메뉴",
       item.quantity, price, price * item.quantity, statusNames[item.status] ?? item.status,
-      item.order.customer_type === "외부자" ? "외부 손님" : item.order.customer_type ?? "미기록", item.order.customer_name ?? "",
+      customerTypeLabel(item.order.customer_type ?? "미기록"), item.order.customer_name ?? "",
       ...[item.order.coupon_used, item.order.cash_due, item.order.cash_received, item.order.coupon_credited].map(value => first ? value ?? "" : ""),
       (item.components ?? []).map(part => `${part.menu_name} × ${part.quantity}`).join(" / "),
       item.option_summary ?? "",

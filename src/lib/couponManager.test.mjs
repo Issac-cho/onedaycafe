@@ -79,7 +79,7 @@ test("invalid charge and corrupt pending storage cannot submit", async () => {
 
 test("guest registration keeps the guest name as identity and stores the member as display information", async () => {
   const app = await mount();
-  app.render().find(n => n.type === "button" && n.props.children === "지체 손님").props.onClick();
+  app.render().find(n => n.type === "button" && n.props.children === "지인 소개").props.onClick();
   app.input("admin-member", "홍지체");
   app.input("admin-customer", "손님이름"); app.input("admin-amount", "10000");
   await app.submit();
@@ -91,7 +91,7 @@ test("guest registration keeps the guest name as identity and stores the member 
 test("updating the member display does not register an account or charge coupons", async () => {
   const app = await mount([], new Map(), { customer_type: "지체 손님", member_name: "기존지체" });
   app.select(); app.input("admin-member", "새지체");
-  await app.render().find(n => n.type === "button" && n.props.children === "지체 이름 저장").props.onClick();
+  await app.render().find(n => n.type === "button" && n.props.children === "소개한 분 이름 저장").props.onClick();
   assert.equal(app.calls.length, 0);
   assert.equal(app.metadataCalls[0].p_account_id, "account");
   assert.equal(app.metadataCalls[0].p_member_name, "새지체");

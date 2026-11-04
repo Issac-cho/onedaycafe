@@ -5,10 +5,14 @@ import { test } from "node:test";
 import vm from "node:vm";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
+const payment = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL("./couponPayment.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: 1, target: 7 },
+}).outputText, { exports: payment });
 const exports = {};
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL("./accounting.ts", import.meta.url), "utf8"), {
   compilerOptions: { module: 1, target: 7 },
-}).outputText, { exports });
+}).outputText, { exports, require: name => { assert.equal(name, "./couponPayment"); return payment; } });
 const { fetchAccountingOrders, accountingDateRange, accountingTotals, accountingOrderAmount } = exports;
 
 test("orders are paginated past 1000 in receipt order and scoped to the store and Korean business day", async () => {
@@ -57,7 +61,7 @@ test("the accounting table renders one order row with separate sale and payment 
     "@/lib/accounting": exports,
     "@/lib/couponPayment": { customerTypeLabel: type => type === "지체 손님" ? "지인 소개" : type },
     "@/lib/useAccountingOrders": {}, "@/components/ui/input": {}, "@/components/ui/label": {},
-    "@/components/ui/button": {}, "@/components/QueueConnectionStatus": {},
+    "@/components/ui/button": { Button: "button" }, "@/components/QueueConnectionStatus": {},
   };
   vm.runInNewContext(ts.transpileModule(readFileSync(new URL("../components/AccountingDashboard.tsx", import.meta.url), "utf8"), {
     compilerOptions: { module: 1, target: 7, jsx: 4 },
@@ -67,8 +71,40 @@ test("the accounting table renders one order row with separate sale and payment 
     customer_type: "지체 손님", customer_name: "손님", member_name: "소개자", coupon_used: 5000, cash_due: 30000, cash_received: 35000, coupon_credited: 5000,
     sales: [{ id: "sale1", menu_name: "필라프 세트", menu_price: 15000, quantity: 2, option_summary: "음료: 콜라", components: [{ menu_name: "필라프", quantity: 1 }, { menu_name: "탄산", quantity: 1 }] },
       { id: "sale2", menu_name: "크로플", menu_price: 5000, quantity: 1, option_summary: "", components: [] }],
-  }] }));
+  }], onCopy() {}, copiedId: null, copying: false }));
   assert.equal((html.match(/<tr[ >]/g) ?? []).length, 2);
   for (const text of ["123번", "야외-1", "지인 소개", "음료: 콜라", "세트 1개 구성", "35,000원", "30,000원", "주문 완료"]) assert.ok(html.includes(text), text);
-  assert.ok(!html.includes("<button"));
+  assert.ok(html.includes('aria-label="123번 주문 복사"'));
+});
+
+test("accounting pages show the largest numbers first and render at most 30 orders", () => {
+  const orders = Array.from({ length: 65 }, (_, i) => ({ order_number: i + 1, table_number: "1", customer_name: i < 40 ? "손님" : "다른손님", member_name: "" }));
+  const first = exports.accountingPage(orders, "", 1);
+  assert.equal(first.orders.length, 30); assert.equal(first.orders[0].order_number, 65); assert.equal(first.orders[29].order_number, 36);
+  const second = exports.accountingPage(orders, "", 2);
+  assert.equal(second.orders[0].order_number, 35); assert.equal(second.orders[29].order_number, 6);
+  const last = exports.accountingPage(orders, "", 3);
+  assert.equal(last.orders.length, 5); assert.equal(last.orders[4].order_number, 1);
+  assert.equal(exports.accountingPage(orders, "다른손님", 3).current, 1);
+  assert.equal(exports.accountingPage(orders, "없음", 1).orders.length, 0);
+  assert.equal(orders[0].order_number, 1, "sorting must not mutate the live ledger");
+  const updated = exports.accountingPage([...orders, { ...orders[0], order_number: 66 }], "", 1);
+  assert.equal(updated.orders[0].order_number, 66); assert.equal(updated.orders.length, 30);
+});
+
+test("clipboard data has one order per row, numeric payments and columns matching the copyable headers", () => {
+  const order = { order_number: 123, created_at: "2026-11-03T15:10:00Z", table_number: "=1+1", status: "completed", payment_method: "쿠폰+현금",
+    customer_type: "지체 손님", customer_name: "손님\t이름\n둘째줄", member_name: "@소개자", coupon_used: 5000, cash_due: 30000, cash_received: 35000, coupon_credited: 5000,
+    sales: [{ menu_name: "필라프 세트", menu_price: 15000, quantity: 2, option_summary: "음료: 콜라\n사이다", components: [{ menu_name: "필라프", quantity: 1 }] },
+      { menu_name: "크로플", menu_price: 5000, quantity: 1, option_summary: "", components: [] }],
+  };
+  const text = exports.accountingOrderTsv(order), cells = text.split("\t");
+  assert.equal(cells.length, exports.accountingClipboardHeaders.split("\t").length);
+  assert.equal(cells.length, 14); assert.ok(!/[\r\n]/.test(text));
+  assert.equal(cells[0], "123"); assert.ok(cells[1].startsWith("2026-11-04 00:10:00"));
+  assert.equal(cells[2], "'=1+1"); assert.equal(cells[3], "지인 소개"); assert.equal(cells[4], "손님 이름 둘째줄"); assert.equal(cells[5], "'@소개자");
+  assert.ok(cells[6].includes("필라프 세트 × 2")); assert.ok(cells[6].includes("크로플 × 1")); assert.ok(cells[6].includes("음료: 콜라 사이다"));
+  assert.deepEqual(cells.slice(8, 13), ["35000", "5000", "30000", "35000", "5000"]);
+  assert.equal(cells[13], "주문 완료");
+  assert.equal(exports.accountingOrderTsv({ ...order, cash_received: null }).split("\t")[11], "미기록");
 });

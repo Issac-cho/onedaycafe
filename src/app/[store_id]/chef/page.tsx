@@ -71,7 +71,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
         </div>
       </div>
 
-      <QueueConnectionStatus {...queue} />
+      <QueueConnectionStatus storeId={store_id} {...queue} />
       <QueueSoundAlert key={`${store_id}:${kitchenGroup}`} mode="chef" items={queue.items} loading={queue.loading} error={queue.error} />
 
       {loading ? (

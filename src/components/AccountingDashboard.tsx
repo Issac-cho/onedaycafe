@@ -67,7 +67,7 @@ function AccountingLedger({ storeId, date }: { storeId: string; date: string }) 
   const term = search.trim();
   const visible = accountingPage(queue.orders, search, page);
   return <div className="space-y-5">
-    <QueueConnectionStatus {...queue} />
+    <QueueConnectionStatus storeId={storeId} {...queue} />
     {queue.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{queue.error}</p>}
     {!queue.loading && <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{[
       ["접수 주문", `${queue.orders.length}건`], ["주문금액 합계", won(totals.amount)], ["쿠폰 사용 합계", won(totals.coupon)],

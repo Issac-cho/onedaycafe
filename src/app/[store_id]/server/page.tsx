@@ -88,7 +88,7 @@ export default function ServerPage({ params }: { params: Promise<{ store_id: str
           </p>
         </div>
 
-        <QueueConnectionStatus {...queue} />
+        <QueueConnectionStatus storeId={store_id} {...queue} />
       <QueueSoundAlert key={store_id} mode="server" items={queue.items} loading={queue.loading} error={queue.error} />
 
         {queue.loading ? (

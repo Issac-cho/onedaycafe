@@ -344,7 +344,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   return (
     <PinLock storeId={store_id} role="order">
       <div className="container mx-auto p-4 max-w-5xl grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <div className="xl:col-span-3"><QueueConnectionStatus connected={connected} error={menuError} lastUpdated={lastUpdated} refresh={() => refreshMenusRef.current()} /></div>
+      <div className="xl:col-span-3"><QueueConnectionStatus storeId={store_id} connected={connected} error={menuError} lastUpdated={lastUpdated} refresh={() => refreshMenusRef.current()} /></div>
       {menuError && <p className="xl:col-span-3 text-sm text-red-700" role="alert">{menuError} 새 주문은 상태 확인 후 접수할 수 있습니다.</p>}
       {storageError && <p className="xl:col-span-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700" role="alert">{storageError}</p>}
       {pendingOrder && (

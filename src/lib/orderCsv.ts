@@ -16,6 +16,10 @@ export type CsvOrderItem = {
 
 export const orderExportHeaders = "주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,메뉴별 주문금액,상태,손님유형,손님이름,소개한분,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행),세트 구성(1개 기준),세부 선택(1개 기준)".split(",");
 
+const orderTime = new Intl.DateTimeFormat("sv-SE", {
+  timeZone: "Asia/Seoul", dateStyle: "short", timeStyle: "medium",
+});
+
 export function orderSaleStatus(items: CsvOrderItem["items"]) {
   if (!items?.length) return "pending";
   if (items.every(work => work.status === "served")) return "served";
@@ -55,7 +59,8 @@ function orderExportRows(items: CsvOrderItem[]) {
     const first = !seen.has(key);
     seen.add(key);
     return [
-      new Date(item.order.created_at).toLocaleString("ko-KR"),
+      // 일부 붙여넣기 대상은 시각의 콜론을 열 구분자로 처리한다.
+      orderTime.format(new Date(item.order.created_at)).replace(/:(\d{2}):(\d{2})$/, "시 $1분 $2초"),
       item.order.order_number, item.order.table_number, item.order.payment_method,
       item.menu_name || item.menu?.name || "삭제된 메뉴",
       item.quantity, price, price * item.quantity, statusNames[item.status] ?? item.status,

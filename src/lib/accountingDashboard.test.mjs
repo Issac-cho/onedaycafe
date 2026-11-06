@@ -65,6 +65,7 @@ test("ledger only passes 30 newest orders to the table, next/latest work and sea
 test("clipboard headers and multiple sale rows match the closing CSV", async () => {
   const app = mount();
   const order = app.queue.orders.at(-1);
+  order.created_at = "2026-11-06T13:27:44Z";
   order.customer_type = "지체 손님";
   order.member_name = "김지체 박지체";
   const first = { ...order.sales[0], created_at: order.created_at, items: [{ status: "served" }] };
@@ -85,6 +86,10 @@ test("clipboard headers and multiple sale rows match the closing CSV", async () 
   const rows = app.writes[1].split("\r\n").map(row => row.split("\t"));
   assert.deepEqual(rows, expected.slice(1).map(row => row.split(",").map(cell => cell.replace(/^"|"$/g, ""))));
   const headers = app.writes[0].split("\t");
+  for (const row of rows) {
+    assert.equal(row.length, headers.length);
+    assert.deepEqual(row.slice(0, 4), ["2026-11-06 22시 27분 44초", "65", "1", "현금"]);
+  }
   assert.equal(headers[headers.indexOf("손님이름") + 1], "소개한분");
   assert.equal(rows[0][headers.indexOf("소개한분")], "김지체 박지체");
   assert.equal(rows[0][headers.indexOf("받은현금(주문첫행)")], "5000");

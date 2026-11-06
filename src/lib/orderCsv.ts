@@ -14,7 +14,7 @@ export type CsvOrderItem = {
   order: { id?: string; customer_type?: string | null; customer_name?: string | null; member_name?: string | null; coupon_used?: number | null; cash_due?: number | null; cash_received?: number | null; coupon_credited?: number | null; order_number: number; table_number: string; payment_method: string; created_at: string };
 };
 
-export const orderExportHeaders = "주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,메뉴별 주문금액,상태,손님유형,손님이름,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행),세트 구성(1개 기준),세부 선택(1개 기준)".split(",");
+export const orderExportHeaders = "주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,메뉴별 주문금액,상태,손님유형,손님이름,소개한분,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행),세트 구성(1개 기준),세부 선택(1개 기준)".split(",");
 
 export function orderSaleStatus(items: CsvOrderItem["items"]) {
   if (!items?.length) return "pending";
@@ -28,7 +28,7 @@ export async function fetchCsvOrderItems(client: SupabaseClient, storeId: string
     const { data, error } = await client.from("order_sales").select(`
       id, menu_name, menu_price, quantity, components, option_summary, items:order_items(status),
       menu:menus(name, price),
-      order:orders!inner(id, order_number, table_number, payment_method, created_at, customer_type, customer_name, coupon_used, cash_due, cash_received, coupon_credited)
+      order:orders!inner(id, order_number, table_number, payment_method, created_at, customer_type, customer_name, member_name, coupon_used, cash_due, cash_received, coupon_credited)
     `).eq("order.store_id", storeId)
       .order("created_at", { ascending: true }).order("id", { ascending: true })
       .range(offset, offset + 499);
@@ -59,7 +59,7 @@ function orderExportRows(items: CsvOrderItem[]) {
       item.order.order_number, item.order.table_number, item.order.payment_method,
       item.menu_name || item.menu?.name || "삭제된 메뉴",
       item.quantity, price, price * item.quantity, statusNames[item.status] ?? item.status,
-      customerTypeLabel(item.order.customer_type ?? "미기록"), item.order.customer_name ?? "",
+      customerTypeLabel(item.order.customer_type ?? "미기록"), item.order.customer_name ?? "", item.order.member_name ?? "",
       ...[item.order.coupon_used, item.order.cash_due, item.order.cash_received, item.order.coupon_credited].map(value => first ? value ?? "" : ""),
       (item.components ?? []).map(part => `${part.menu_name} × ${part.quantity}`).join(" / "),
       item.option_summary ?? "",

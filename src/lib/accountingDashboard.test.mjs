@@ -65,6 +65,8 @@ test("ledger only passes 30 newest orders to the table, next/latest work and sea
 test("clipboard headers and multiple sale rows match the closing CSV", async () => {
   const app = mount();
   const order = app.queue.orders.at(-1);
+  order.customer_type = "지체 손님";
+  order.member_name = "김지체 박지체";
   const first = { ...order.sales[0], created_at: order.created_at, items: [{ status: "served" }] };
   const second = { ...first, id: "zz-second", menu_name: "필라프 세트", menu_price: 15000,
     items: [{ status: "cooked" }, { status: "pending" }],
@@ -82,8 +84,11 @@ test("clipboard headers and multiple sale rows match the closing CSV", async () 
   assert.equal(app.writes[0], expected[0].replaceAll(",", "\t"));
   const rows = app.writes[1].split("\r\n").map(row => row.split("\t"));
   assert.deepEqual(rows, expected.slice(1).map(row => row.split(",").map(cell => cell.replace(/^"|"$/g, ""))));
-  assert.equal(rows[0][13], "5000");
-  assert.equal(rows[1][13], "");
+  const headers = app.writes[0].split("\t");
+  assert.equal(headers[headers.indexOf("손님이름") + 1], "소개한분");
+  assert.equal(rows[0][headers.indexOf("소개한분")], "김지체 박지체");
+  assert.equal(rows[0][headers.indexOf("받은현금(주문첫행)")], "5000");
+  assert.equal(rows[1][headers.indexOf("받은현금(주문첫행)")], "");
   assert.equal(app.table().props.copiedId, order.id);
 
   app.fail();

@@ -20,7 +20,7 @@ const row = id => ({ id: String(id), quantity: 2, menu_name: `커피 ${id}`, men
 function client(rows, failedPage = -1) {
   const ranges = [], ordering = [];
   const query = {
-    select(columns) { assert.ok(columns.includes("orders!inner")); return this; },
+    select(columns) { assert.match(columns, /orders!inner\([^)]*\bmember_name\b/); return this; },
     eq(key, value) { assert.equal(key, "order.store_id"); assert.equal(value, "store"); return this; },
     order(key) { ordering.push(key); return this; },
     range(from, to) {

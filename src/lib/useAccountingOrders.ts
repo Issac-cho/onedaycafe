@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./supabase";
-import { fetchAccountingMenus, fetchAccountingOrders, type AccountingOrder } from "./accounting";
+import { fetchAccountingOrders, type AccountingOrder } from "./accounting";
 
 export function useAccountingOrders(storeId: string, date: string) {
   const [orders, setOrders] = useState<AccountingOrder[]>([]);
@@ -10,7 +10,6 @@ export function useAccountingOrders(storeId: string, date: string) {
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [menus, setMenus] = useState<string[]>([]);
   const refreshRef = useRef<() => void>(() => {});
   const refresh = useCallback(() => refreshRef.current(), []);
 
@@ -25,14 +24,11 @@ export function useAccountingOrders(storeId: string, date: string) {
       controller = request;
       const timeout = setTimeout(() => request.abort(), 10000);
       try {
-        const [result, catalog] = await Promise.all([
-          fetchAccountingOrders(supabase, storeId, date, request.signal),
-          fetchAccountingMenus(supabase, storeId, request.signal),
-        ]);
-        if (active) { setOrders(result); setMenus(catalog); setError(null); setLastUpdated(new Date()); }
+        const result = await fetchAccountingOrders(supabase, storeId, date, request.signal);
+        if (active) { setOrders(result); setError(null); setLastUpdated(new Date()); }
       } catch {
         request.abort();
-        if (active) setError("주문·메뉴 정보를 갱신하지 못했습니다. 이전 목록은 최신 상태가 아닐 수 있습니다. 연결을 확인하고 다시 조회해 주세요.");
+        if (active) setError("주문 정보를 갱신하지 못했습니다. 이전 목록은 최신 상태가 아닐 수 있습니다. 연결을 확인하고 다시 조회해 주세요.");
       } finally {
         clearTimeout(timeout);
         running = false;
@@ -47,13 +43,12 @@ export function useAccountingOrders(storeId: string, date: string) {
     refreshRef.current = () => { void fetchOrders(); };
     void Promise.resolve().then(() => {
       if (!active) return;
-      setOrders([]); setMenus([]); setLoading(true); setError(null); setConnected(false); setLastUpdated(null);
+      setOrders([]); setLoading(true); setError(null); setConnected(false); setLastUpdated(null);
       void fetchOrders();
     });
     // 주문·판매 행·결제 정보는 같은 트랜잭션으로 저장된다. orders 알림 후 완성된 판매 내역을 읽는다.
     const channel = supabase.channel(`accounting:${storeId}:${date || "all"}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter: `store_id=eq.${storeId}` }, () => { void fetchOrders(); })
-      .on("postgres_changes", { event: "*", schema: "public", table: "menus", filter: `store_id=eq.${storeId}` }, () => { void fetchOrders(); })
       .subscribe(state => {
         if (!active) return;
         setConnected(state === "SUBSCRIBED");
@@ -74,5 +69,5 @@ export function useAccountingOrders(storeId: string, date: string) {
       void supabase.removeChannel(channel);
     };
   }, [storeId, date]);
-  return { orders, menus, loading, error, connected, lastUpdated, refresh };
+  return { orders, loading, error, connected, lastUpdated, refresh };
 }

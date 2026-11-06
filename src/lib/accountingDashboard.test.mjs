@@ -6,12 +6,13 @@ import vm from "node:vm";
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 const compile = path => ts.transpileModule(readFileSync(new URL(path, import.meta.url), "utf8"), { compilerOptions: { module: 1, target: 7, jsx: 4 } }).outputText;
-const payment = {}, accounting = {};
+const payment = {}, accounting = {}, csv = {};
 vm.runInNewContext(compile("./couponPayment.ts"), { exports: payment });
-vm.runInNewContext(compile("./accounting.ts"), { exports: accounting, require: () => payment });
+vm.runInNewContext(compile("./orderCsv.ts"), { exports: csv, require: () => payment });
+vm.runInNewContext(compile("./accounting.ts"), { exports: accounting, require: () => csv });
 
 function mount() {
-  const slots = [], writes = [], storage = new Map();
+  const slots = [], writes = [];
   let cursor = 0, failure = false;
   const react = {
     useState(initial) {
@@ -25,9 +26,9 @@ function mount() {
     id: `order-${i + 1}`, order_number: i + 1, table_number: "1", created_at: "2026-11-04T01:00:00Z", customer_name: "손님", customer_type: "개척자", member_name: "",
     status: "received", payment_method: "현금", coupon_used: 0, cash_due: 5000, cash_received: 5000, coupon_credited: 0,
     sales: [{ id: `sale-${i}`, menu_name: "커피", menu_price: 5000, quantity: 1, option_summary: "", components: [] }],
-  })), menus: ["커피"], loading: false, connected: true, error: null, lastUpdated: new Date(), refresh() {} };
+  })), loading: false, connected: true, error: null, lastUpdated: new Date(), refresh() {} };
   const dependencies = {
-    react, "@/lib/accounting": accounting, "@/lib/couponPayment": payment,
+    react, "@/lib/accounting": accounting, "@/lib/orderCsv": csv, "@/lib/couponPayment": payment,
     "@/lib/useAccountingOrders": { useAccountingOrders: () => queue },
     "@/components/ui/input": { Input: "input" }, "@/components/ui/label": { Label: "label" },
     "@/components/ui/button": { Button: "button" }, "@/components/QueueConnectionStatus": { QueueConnectionStatus: "Connection" },
@@ -36,7 +37,6 @@ function mount() {
   vm.runInNewContext(compile("../components/AccountingDashboard.tsx"), {
     exports, require: name => dependencies[name] ?? require(name),
     navigator: { clipboard: { async writeText(text) { if (failure) throw new Error("denied"); writes.push(text); } } },
-    localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
   });
   function flatten(node, list = []) {
     if (Array.isArray(node)) { node.forEach(child => flatten(child, list)); return list; }
@@ -62,61 +62,33 @@ test("ledger only passes 30 newest orders to the table, next/latest work and sea
   assert.equal(app.table().props.orders.length, 1); assert.equal(app.table().props.orders[0].order_number, 65);
 });
 
-test("headers include unpurchased catalog menus even with no orders and their cells copy as zero", async () => {
+test("clipboard headers and multiple sale rows match the closing CSV", async () => {
   const app = mount();
-  app.queue.menus = ["커피", "붕어빵 2개", "필라프 + 탄산"];
-  const order = app.queue.orders[0];
-  app.queue.orders = [];
-  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
-  const names = app.writes[0].split("\t").slice(14);
-  assert.equal(names.length, 3);
-  assert.ok(names.includes("붕어빵 2개")); assert.ok(names.includes("필라프 + 탄산"));
-  app.queue.orders = [order]; app.table().props.onCopy(order); await settle();
-  const values = app.writes[1].split("\t").slice(14);
-  assert.equal(values[names.indexOf("붕어빵 2개")], "0");
-  assert.equal(values[names.indexOf("필라프 + 탄산")], "0");
-  assert.equal(values[names.indexOf("커피")], "1");
-});
+  const order = app.queue.orders.at(-1);
+  const first = { ...order.sales[0], created_at: order.created_at, items: [{ status: "served" }] };
+  const second = { ...first, id: "zz-second", menu_name: "필라프 세트", menu_price: 15000,
+    items: [{ status: "cooked" }, { status: "pending" }],
+    components: [{ menu_name: "필라프", quantity: 1 }], option_summary: "종류: 게살" };
+  order.sales = [second, first];
+  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick();
+  await settle();
+  app.table().props.onCopy(order);
+  await settle();
 
-test("order and header copy write matching TSV; denied clipboard access never displays false success", async () => {
-  const app = mount();
-  const table = app.table();
-  table.props.onCopy(table.props.orders[0]); await settle();
-  assert.equal(app.writes.length, 0);
-  assert.ok(app.render().some(n => n.props.role === "alert" && n.props.children.includes("열 제목 복사")));
-  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
-  assert.equal(app.writes[0], accounting.accountingClipboardHeaders(accounting.accountingClipboardColumns(app.queue.orders)));
-  table.props.onCopy(table.props.orders[0]); await settle();
-  assert.equal(app.writes[1].split("\t")[0], "65"); assert.equal(app.table().props.copiedId, "order-65");
-  app.fail(); app.table().props.onCopy(table.props.orders[1]); await settle();
-  assert.equal(app.writes.length, 2); assert.equal(app.table().props.copiedId, null);
-  assert.ok(app.render().some(n => n.props.role === "alert" && n.props.children.includes("복사하지 못했습니다")));
-});
+  const expected = csv.buildOrderCsv([
+    { ...first, menu: null, order, status: "served" },
+    { ...second, menu: null, order, status: "pending" },
+  ]).replace(/^\uFEFF/, "").trimEnd().split("\r\n");
+  assert.equal(app.writes[0], expected[0].replaceAll(",", "\t"));
+  const rows = app.writes[1].split("\r\n").map(row => row.split("\t"));
+  assert.deepEqual(rows, expected.slice(1).map(row => row.split(",").map(cell => cell.replace(/^"|"$/g, ""))));
+  assert.equal(rows[0][13], "5000");
+  assert.equal(rows[1][13], "");
+  assert.equal(app.table().props.copiedId, order.id);
 
-test("a new menu is blocked until headers are extended, preserving existing spreadsheet column positions", async () => {
-  const app = mount();
-  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
-  const oldHeaders = app.writes[0];
-  const added = { ...app.queue.orders[0], id: "new", order_number: 66, sales: [{ ...app.queue.orders[0].sales[0], menu_name: "새 메뉴" }] };
-  app.queue.orders.push(added);
-  app.table().props.onCopy(added); await settle();
-  assert.equal(app.writes.length, 1);
-  assert.ok(app.render().some(n => n.props.role === "alert" && n.props.children.includes("새 메뉴 열")));
-  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
-  assert.equal(app.writes[1], oldHeaders + "\t새 메뉴");
-  app.table().props.onCopy(added); await settle();
-  assert.equal(app.writes[2].split("\t").slice(14).join(","), "0,1");
-});
-
-test("new options on an existing menu copy into the same column without updating the headers", async () => {
-  const app = mount();
-  app.render().find(n => n.type === "button" && n.props.children === "엑셀 열 제목 복사").props.onClick(); await settle();
-  const added = { ...app.queue.orders[0], id: "new-options", order_number: 66, sales: [
-    { ...app.queue.orders[0].sales[0], option_summary: "온도: 아이스", quantity: 2 },
-    { ...app.queue.orders[0].sales[0], option_summary: "온도: 핫", quantity: 1 },
-  ] };
-  app.queue.orders.push(added); app.table().props.onCopy(added); await settle();
+  app.fail();
+  app.table().props.onCopy(order);
+  await settle();
   assert.equal(app.writes.length, 2);
-  assert.equal(app.writes[0].split("\t").at(-1), "커피");
-  assert.equal(app.writes[1].split("\t").at(-1), "아이스 : 2, 핫 : 1");
+  assert.ok(app.render().some(n => n.props.role === "alert" && n.props.children.includes("복사하지 못했습니다")));
 });

@@ -1,8 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { customerTypeLabel } from "./couponPayment";
+import { buildOrderTsv, orderSaleStatus } from "./orderCsv";
 
 export type AccountingSale = {
   id: string;
+  created_at: string;
+  items: { status: string }[];
   menu_name: string;
   menu_price: number;
   quantity: number;
@@ -36,25 +38,13 @@ export function accountingDateRange(date: string) {
   return { start: start.toISOString(), end: new Date(start.getTime() + 86400000).toISOString() };
 }
 
-export async function fetchAccountingMenus(client: SupabaseClient, storeId: string, signal: AbortSignal) {
-  const names: string[] = [];
-  for (let offset = 0; ; offset += 500) {
-    const { data, error } = await client.from("menus").select("name")
-      .eq("store_id", storeId).eq("is_deleted", false).neq("menu_type", "component")
-      .order("id", { ascending: true }).range(offset, offset + 499).abortSignal(signal);
-    if (error) throw error;
-    names.push(...(data ?? []).map(menu => menu.name));
-    if (!data || data.length < 500) return names;
-  }
-}
-
 export async function fetchAccountingOrders(client: SupabaseClient, storeId: string, date: string, signal: AbortSignal) {
   const orders: AccountingOrder[] = [];
   for (let offset = 0; ; offset += 500) {
     let query = client.from("orders").select(`
       id, order_number, table_number, created_at, status, payment_method,
       customer_type, customer_name, member_name, coupon_used, cash_due, cash_received, coupon_credited,
-      sales:order_sales(id, menu_name, menu_price, quantity, option_summary, components)
+      sales:order_sales(id, created_at, menu_name, menu_price, quantity, option_summary, components, items:order_items(status))
     `).eq("store_id", storeId);
     if (date) {
       const range = accountingDateRange(date);
@@ -93,80 +83,14 @@ export function accountingPage(orders: AccountingOrder[], search: string, page: 
   return { orders: filtered.slice(start, start + 30), total: filtered.length, pages, current, start };
 }
 
-export type AccountingClipboardColumn = { menu: string };
-
-export function accountingClipboardColumns(orders: AccountingOrder[], existing: AccountingClipboardColumn[] = [], menus: string[] = []) {
-  const columns = [...existing];
-  const seen = new Set(columns.map(column => column.menu));
-  for (const name of [...menus].sort((a, b) => a.localeCompare(b))) {
-    if (!seen.has(name)) { seen.add(name); columns.push({ menu: name }); }
-  }
-  for (const order of [...orders].sort((a, b) => a.order_number - b.order_number)) {
-    for (const sale of [...order.sales].sort((a, b) => a.menu_name.localeCompare(b.menu_name))) {
-      if (!seen.has(sale.menu_name)) { seen.add(sale.menu_name); columns.push({ menu: sale.menu_name }); }
-    }
-  }
-  return columns;
-}
-
-export function parseAccountingClipboardColumns(value: string | null): AccountingClipboardColumn[] {
-  if (!value) return [];
-  const columns: unknown = JSON.parse(value);
-  if (!Array.isArray(columns) || !columns.every(column => column && typeof column.menu === "string" && !("options" in column))) throw new Error("잘못된 엑셀 열 설정");
-  return columns;
-}
-
-function clipboardCell(value: string | number | null) {
-  if (value == null) return "미기록";
-  if (typeof value === "number") return String(value);
-  // 한 주문은 한 행으로 붙이고, 입력된 이름·테이블 등이 수식으로 실행되지 않게 한다.
-  const text = value.replace(/[\t\r\n]+/g, " ");
-  return /^\s*[=+\-@]/.test(text) ? "'" + text : text;
-}
-
-export function accountingClipboardHeaders(columns: AccountingClipboardColumn[]) {
-  return ["주문번호", "접수 시각", "테이블", "손님유형", "손님이름", "소개한 분", "메뉴·옵션·수량", "결제수단", "주문금액", "쿠폰 사용", "필요 현금", "받은 현금", "쿠폰 적립", "주문 상태",
-    ...columns.map(column => column.menu),
-  ].map(clipboardCell).join("\t");
-}
-
-function accountingOptionLabel(sale: AccountingSale) {
-  const values = (text: string) => text.split(", ").map(group => {
-    const colon = group.indexOf(": ");
-    return colon < 0 ? group : group.slice(colon + 2);
-  }).join(", ").replace(/\s*\/\s*/g, "/");
-  const summary = sale.option_summary || "";
-  if (!sale.components?.length) return values(summary);
-  return summary.split(" · ").map(component => {
-    const colon = component.indexOf(": ");
-    return colon < 0 ? values(component) : `${component.slice(0, colon)}: ${values(component.slice(colon + 2))}`;
-  }).join(", ");
-}
-
-export function accountingOrderTsv(order: AccountingOrder, columns: AccountingClipboardColumn[]) {
-  const counts = new Map<string, Map<string, { label: string; quantity: number }>>();
-  for (const sale of order.sales) {
-    let options = counts.get(sale.menu_name);
-    if (!options) { options = new Map(); counts.set(sale.menu_name, options); }
-    const summary = sale.option_summary || "";
-    options.set(summary, { label: accountingOptionLabel(sale), quantity: (options.get(summary)?.quantity ?? 0) + sale.quantity });
-  }
-  if (accountingClipboardColumns([order], columns).length !== columns.length) throw new Error("메뉴 열이 누락되었습니다. 열 제목을 먼저 갱신해 주세요.");
-  const menus = order.sales.map(sale => [
-    `${sale.menu_name} × ${sale.quantity}`,
-    accountingOptionLabel(sale),
-  ].filter(Boolean).join(" · ")).join(" / ");
-  return [
-    order.order_number,
-    new Date(order.created_at).toLocaleString("sv-SE", { timeZone: "Asia/Seoul", hour12: false }),
-    order.table_number, customerTypeLabel(order.customer_type ?? "미기록"), order.customer_name ?? "", order.member_name ?? "",
-    menus, order.payment_method, accountingOrderAmount(order), order.coupon_used, order.cash_due, order.cash_received, order.coupon_credited,
-    order.status === "completed" ? "주문 완료" : "진행 중",
-    ...columns.map(column => {
-      const options = counts.get(column.menu);
-      if (!options) return 0;
-      if (options.size === 1 && options.has("")) return options.get("")!.quantity;
-      return [...options].sort(([a], [b]) => a.localeCompare(b)).map(([, { label, quantity }]) => `${label || "기본"} : ${quantity}`).join(", ");
-    }),
-  ].map(clipboardCell).join("\t");
+export function accountingOrderTsv(order: AccountingOrder) {
+  const sales = [...order.sales].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+  );
+  return buildOrderTsv(sales.map(sale => ({
+    ...sale,
+    order,
+    menu: null,
+    status: orderSaleStatus(sale.items),
+  })));
 }

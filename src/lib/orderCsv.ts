@@ -14,6 +14,14 @@ export type CsvOrderItem = {
   order: { id?: string; customer_type?: string | null; customer_name?: string | null; member_name?: string | null; coupon_used?: number | null; cash_due?: number | null; cash_received?: number | null; coupon_credited?: number | null; order_number: number; table_number: string; payment_method: string; created_at: string };
 };
 
+export const orderExportHeaders = "주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,메뉴별 주문금액,상태,손님유형,손님이름,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행),세트 구성(1개 기준),세부 선택(1개 기준)".split(",");
+
+export function orderSaleStatus(items: CsvOrderItem["items"]) {
+  if (!items?.length) return "pending";
+  if (items.every(work => work.status === "served")) return "served";
+  return items.every(work => work.status === "cooked" || work.status === "served") ? "cooked" : "pending";
+}
+
 export async function fetchCsvOrderItems(client: SupabaseClient, storeId: string) {
   const items: CsvOrderItem[] = [];
   for (let offset = 0; ; offset += 500) {
@@ -26,8 +34,7 @@ export async function fetchCsvOrderItems(client: SupabaseClient, storeId: string
       .range(offset, offset + 499);
     if (error) throw error;
     items.push(...((data ?? []) as unknown as CsvOrderItem[]).map(item => ({ ...item, status: item.status
-      ?? (item.items?.length && item.items.every(work => work.status === "served") ? "served"
-        : item.items?.length && item.items.every(work => work.status === "cooked" || work.status === "served") ? "cooked" : "pending") })));
+      ?? orderSaleStatus(item.items) })));
     if (!data || data.length < 500) return items;
   }
 }
@@ -39,10 +46,10 @@ function csvCell(value: string | number) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-export function buildOrderCsv(items: CsvOrderItem[]) {
+function orderExportRows(items: CsvOrderItem[]) {
   const statusNames: Record<string, string> = { pending: "조리 대기", cooked: "서빙 대기", served: "서빙 완료" };
   const seen = new Set<string | number>();
-  const rows = items.map(item => {
+  return items.map(item => {
     const price = item.menu_price ?? item.menu?.price ?? 0;
     const key = item.order.id ?? item.order.order_number;
     const first = !seen.has(key);
@@ -56,7 +63,20 @@ export function buildOrderCsv(items: CsvOrderItem[]) {
       ...[item.order.coupon_used, item.order.cash_due, item.order.cash_received, item.order.coupon_credited].map(value => first ? value ?? "" : ""),
       (item.components ?? []).map(part => `${part.menu_name} × ${part.quantity}`).join(" / "),
       item.option_summary ?? "",
-    ].map(csvCell).join(",");
+    ];
   });
-  return "\uFEFF주문시간,주문번호,테이블번호,결제수단,메뉴명,수량,단가,메뉴별 주문금액,상태,손님유형,손님이름,쿠폰사용액(주문첫행),필요현금(주문첫행),받은현금(주문첫행),쿠폰적립액(주문첫행),세트 구성(1개 기준),세부 선택(1개 기준)\r\n" + rows.join("\r\n") + "\r\n";
+}
+
+export function buildOrderCsv(items: CsvOrderItem[]) {
+  const rows = orderExportRows(items).map(row => row.map(csvCell).join(","));
+  return "\uFEFF" + orderExportHeaders.join(",") + "\r\n" + rows.join("\r\n") + "\r\n";
+}
+
+export function buildOrderTsv(items: CsvOrderItem[]) {
+  return orderExportRows(items).map(row => row.map(value => {
+    if (typeof value === "number") return String(value);
+    const cell = value.replace(/[\t\r\n]+/g, " ");
+    const safe = /^[\s]*[=+\-@]|^[\t\r\n]/.test(value) ? "'" + cell : cell;
+    return safe.includes('"') ? `"${safe.replaceAll('"', '""')}"` : safe;
+  }).join("\t")).join("\r\n");
 }

@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { QueueConnectionStatus } from "@/components/QueueConnectionStatus";
 import { customerTypeLabel } from "@/lib/couponPayment";
-import { accountingClipboardColumns, accountingClipboardHeaders, accountingOrderAmount, accountingOrderTsv, accountingPage, accountingTotals, koreaToday, parseAccountingClipboardColumns, type AccountingOrder } from "@/lib/accounting";
+import { accountingOrderAmount, accountingOrderTsv, accountingPage, accountingTotals, koreaToday, type AccountingOrder } from "@/lib/accounting";
+import { orderExportHeaders } from "@/lib/orderCsv";
 import { useAccountingOrders } from "@/lib/useAccountingOrders";
 
 const won = (value: number | null) => value == null ? "미기록" : `${value.toLocaleString()}원`;
@@ -51,16 +52,11 @@ function AccountingLedger({ storeId, date }: { storeId: string; date: string }) 
     if (copyLock.current) return;
     copyLock.current = true; setCopying(true); setCopiedId(null); setCopyError(null);
     try {
-      const key = `accountingClipboardColumns:v3:${storeId}`;
-      const saved = parseAccountingClipboardColumns(localStorage.getItem(key));
-      if (order && !saved.length) { setCopyError("먼저 ‘엑셀 열 제목 복사’를 눌러 시트 첫 행에 붙여 주세요."); return; }
-      if (order && accountingClipboardColumns([order], saved).length !== saved.length) { setCopyError("새 메뉴 열이 필요합니다. ‘엑셀 열 제목 복사’를 눌러 시트 첫 행을 갱신한 뒤 주문을 복사해 주세요. 새 열은 오른쪽 끝에 추가됩니다."); return; }
-      const columns = order ? saved : accountingClipboardColumns(queue.orders, saved, queue.menus);
-      await navigator.clipboard.writeText(order ? accountingOrderTsv(order, columns) : accountingClipboardHeaders(columns));
-      if (!order) localStorage.setItem(key, JSON.stringify(columns));
+      if (order && !order.sales.length) { setCopyError("복사할 판매 내역이 없습니다."); return; }
+      await navigator.clipboard.writeText(order ? accountingOrderTsv(order) : orderExportHeaders.join("\t"));
       setCopiedId(order?.id ?? "headers");
     }
-    catch { setCopyError("복사하지 못했습니다. 브라우저의 클립보드·사이트 저장소 권한을 확인하고 다시 눌러 주세요."); }
+    catch { setCopyError("복사하지 못했습니다. 브라우저의 클립보드 권한을 확인하고 다시 눌러 주세요."); }
     finally { copyLock.current = false; setCopying(false); }
   };
   const totals = accountingTotals(queue.orders);
@@ -75,9 +71,9 @@ function AccountingLedger({ storeId, date }: { storeId: string; date: string }) 
     ].map(([title, value]) => <div key={title} className="rounded-lg border p-3"><p className="text-xs text-gray-600">{title}</p><p className="mt-1 break-words text-lg font-bold">{value}</p></div>)}</div>}
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="w-full space-y-2 sm:max-w-sm"><Label htmlFor="accounting-search">주문 검색</Label><Input id="accounting-search" placeholder="주문번호, 테이블, 손님 또는 소개한 분" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div>
-      <Button type="button" variant="outline" disabled={copying || queue.loading || !!queue.error} onClick={() => void copy()}>{copiedId === "headers" ? "열 제목 복사됨" : "엑셀 열 제목 복사"}</Button>
+      <Button type="button" variant="outline" disabled={copying} onClick={() => void copy()}>{copiedId === "headers" ? "열 제목 복사됨" : "엑셀 열 제목 복사"}</Button>
     </div>
-    <p className="text-xs text-gray-600">‘엑셀 열 제목 복사’를 시트 첫 행에 붙인 뒤 주문을 복사하세요. 주문되지 않은 메뉴도 포함해 등록된 판매 메뉴 전체가 열 제목에 들어갑니다. 오른쪽 메뉴별 열에 옵션 조합과 판매 수량이 기록됩니다. 예: 팥/팥 : 1, 팥/슈크림 : 2. 세트 구성품은 나누지 않습니다. 새 메뉴가 생기면 열 제목을 다시 복사해 첫 행을 갱신하세요. 기존 열 위치는 유지되고 새 열은 끝에 추가됩니다.</p>
+    <p className="text-xs text-gray-600">‘엑셀 열 제목 복사’를 시트 첫 행에 붙인 뒤 주문을 복사하세요. 마감 CSV와 같은 순서로 판매 메뉴마다 한 행이 붙습니다. 쿠폰 사용액과 현금 등 주문 전체 결제 내역은 해당 주문의 첫 행에 기록됩니다.</p>
     {copyError && <p role="alert" className="text-sm text-red-700">{copyError}</p>}
     {copiedId && <p role="status" className="text-sm text-blue-700">{copiedId === "headers" ? "열 제목을 복사했습니다." : "주문을 복사했습니다. 스프레드시트의 빈 행에 붙여넣으세요."}</p>}
     {queue.loading ? <p className="py-10 text-center text-gray-500">주문 내역을 불러오는 중...</p>

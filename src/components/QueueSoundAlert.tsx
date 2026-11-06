@@ -2,10 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { createQueueAlertTracker } from "@/lib/queueAlerts";
-import type { QueueItem } from "@/lib/useOrderQueue";
+import { createQueueAlertTracker, type AlertItem, type AlertMode } from "@/lib/queueAlerts";
 
-export function QueueSoundAlert({ mode, items, loading, error }: { mode: "chef" | "server"; items: QueueItem[]; loading: boolean; error: string | null }) {
+export function QueueSoundAlert({ mode, items, loading, error }: {
+  mode: AlertMode;
+  items: AlertItem[];
+  loading: boolean;
+  error: string | null;
+}) {
   const tracker = useRef<ReturnType<typeof createQueueAlertTracker> | null>(null);
   if (tracker.current === null) tracker.current = createQueueAlertTracker(mode);
   const audio = useRef<HTMLAudioElement | null>(null);

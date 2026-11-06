@@ -67,6 +67,7 @@ test("the accounting table renders one order row with separate sale and payment 
     "@/lib/couponPayment": { customerTypeLabel: type => type === "지체 손님" ? "지인 소개" : type },
     "@/lib/useAccountingOrders": {}, "@/components/ui/input": {}, "@/components/ui/label": {},
     "@/components/ui/button": { Button: "button" }, "@/components/QueueConnectionStatus": {},
+    "@/components/QueueSoundAlert": {},
   };
   vm.runInNewContext(ts.transpileModule(readFileSync(new URL("../components/AccountingDashboard.tsx", import.meta.url), "utf8"), {
     compilerOptions: { module: 1, target: 7, jsx: 4 },

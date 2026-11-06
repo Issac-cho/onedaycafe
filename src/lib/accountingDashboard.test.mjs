@@ -32,6 +32,7 @@ function mount() {
     "@/lib/useAccountingOrders": { useAccountingOrders: () => queue },
     "@/components/ui/input": { Input: "input" }, "@/components/ui/label": { Label: "label" },
     "@/components/ui/button": { Button: "button" }, "@/components/QueueConnectionStatus": { QueueConnectionStatus: "Connection" },
+    "@/components/QueueSoundAlert": { QueueSoundAlert: "QueueSoundAlert" },
   };
   const exports = {};
   vm.runInNewContext(compile("../components/AccountingDashboard.tsx"), {
@@ -60,6 +61,7 @@ test("ledger only passes 30 newest orders to the table, next/latest work and sea
   app.render().find(n => n.type === "button" && n.props.children === "다음").props.onClick();
   app.render().find(n => n.props.id === "accounting-search").props.onChange({ target: { value: "65" } });
   assert.equal(app.table().props.orders.length, 1); assert.equal(app.table().props.orders[0].order_number, 65);
+  assert.equal(app.render().find(n => n.type === "QueueSoundAlert").props.items, app.queue.orders);
 });
 
 test("clipboard headers and multiple sale rows match the closing CSV", async () => {

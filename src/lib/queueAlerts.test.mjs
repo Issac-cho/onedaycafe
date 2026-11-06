@@ -8,6 +8,16 @@ const exports = {};
 vm.runInNewContext(require("typescript").transpileModule(readFileSync(new URL("./queueAlerts.ts", import.meta.url), "utf8"), { compilerOptions: { module: 1, target: 7 } }).outputText, { exports });
 const { createQueueAlertTracker } = exports;
 const item = (id, cooked = 0, served = 0) => ({ id, cooked_quantity: cooked, served_quantity: served });
+test("accounting alerts only when a new order ID appears after the initial load", () => {
+  const update = createQueueAlertTracker("accounting");
+  const existing = { id: "old", status: "received" };
+  const completed = { ...existing, status: "completed" };
+  const incoming = { id: "new", status: "received" };
+  assert.equal(update([existing]), false);
+  assert.equal(update([completed]), false);
+  assert.equal(update([completed, incoming]), true);
+  assert.equal(update([incoming, completed]), false);
+});
 test("kitchen starts silently, alerts for new work and does not repeat on refresh or recovery", () => {
   const update = createQueueAlertTracker("chef");
   assert.equal(update([item("old")]), false);

@@ -6,6 +6,8 @@ VALUES('00000000-0000-0000-0000-000000000002','지체 손님','기존손님','�
 \ir ../migrations/20261031_guest_name_only.sql
 \ir ../migrations/20261031_friend_customer_entry.sql
 \ir ../migrations/20261103_friend_member_search.sql
+\ir ../migrations/20261106_multiple_referrers_search.sql
+\ir ../migrations/20261106_multiple_guest_names_search.sql
 BEGIN;
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql AS
   'SELECT nullif(current_setting(''test.uid'',true),'''')::uuid';
@@ -31,7 +33,14 @@ BEGIN
   PERFORM public.set_coupon_member_name((public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님','')->>'id')::uuid,'홍지체');
   ASSERT public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님','')->>'member_name'='홍지체';
   ASSERT (public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님','')->>'balance')::bigint=0;
-  PERFORM public.set_coupon_member_name((public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님2','')->>'id')::uuid,'홍지체');
+  PERFORM public.set_coupon_member_name((public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','손님2','')->>'id')::uuid,'홍지체  박지체 이지체');
+  ASSERT public.find_friend_accounts('00000000-0000-0000-0000-000000000002','박지체')->0->>'customer_name'='손님2';
+  ASSERT public.find_friend_accounts('00000000-0000-0000-0000-000000000002','이지체')->0->>'customer_name'='손님2';
+  ASSERT public.find_friend_accounts('00000000-0000-0000-0000-000000000002','박지')='[]'::jsonb;
+  PERFORM public.manage_coupon_account(gen_random_uuid(),'00000000-0000-0000-0000-000000000002','지체 손님','김손님 이손님','',10000,true);
+  ASSERT public.find_friend_accounts('00000000-0000-0000-0000-000000000002','김손님')->0->>'customer_name'='김손님 이손님';
+  ASSERT public.find_friend_accounts('00000000-0000-0000-0000-000000000002','이손님')->0->>'customer_name'='김손님 이손님';
+  ASSERT (public.lookup_coupon_account('00000000-0000-0000-0000-000000000002','지체 손님','김손님 이손님','')->>'balance')::bigint=10000;
   ASSERT jsonb_array_length(public.find_friend_accounts('00000000-0000-0000-0000-000000000002',' 홍지체 '))=2;
   ASSERT public.find_friend_accounts('00000000-0000-0000-0000-000000000002','홍지체')->0->>'customer_name'='손님';
   ASSERT jsonb_array_length(public.find_friend_accounts('00000000-0000-0000-0000-000000000002','손님'))=1;

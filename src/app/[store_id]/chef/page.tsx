@@ -101,6 +101,7 @@ export default function ChefPage({ params }: { params: Promise<{ store_id: strin
                       {display.title} <span className="text-gray-500 ml-2">x {item.quantity}</span>
                     </h3>
                     {display.options && <p className="mt-1 text-sm font-semibold text-gray-700 [overflow-wrap:anywhere]">{display.options}</p>}
+                    {item.kitchen_note && <p className="mt-2 whitespace-pre-wrap break-words rounded bg-amber-100 p-2 text-sm font-semibold text-amber-950">주방 요청 · {item.kitchen_note}</p>}
                     {item.set_name && <p className="text-xs font-medium text-blue-700">{item.set_name} × {item.sale_quantity} 구성품</p>}
                     <div className="text-xs text-gray-400 mt-2">
                       주문 시간: {new Date(item.created_at).toLocaleTimeString()}

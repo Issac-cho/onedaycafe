@@ -11,6 +11,7 @@ export type QueueItem = {
   status: string;
   created_at: string;
   menu_name?: string | null;
+  kitchen_note?: string | null;
   sale_line_id?: string | null;
   set_name?: string | null;
   sale_quantity?: number | null;
@@ -47,6 +48,7 @@ export function useOrderQueue(storeId: string, status: "pending" | "cooked" | "s
         for (let offset = 0; ; offset += 500) {
           let query = supabase.from("order_items").select(`
             id, quantity, served_quantity, cooked_quantity, status, created_at, menu_name, sale_line_id, set_name, sale_quantity,
+            ${status === "pending" ? "kitchen_note," : ""}
             menu:menus!inner(id, name, kitchen_group, store_id),
             order:orders!inner(id, table_number, order_number, status)
           `).eq("menu.store_id", storeId).eq("order.store_id", storeId);

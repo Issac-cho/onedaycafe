@@ -5,6 +5,7 @@ export type PendingOrder = {
   storeId: string;
   tableNumber: string;
   paymentMethod: string;
+  kitchenNote?: string;
   customer?: Customer;
   couponUsed?: number;
   cashReceived?: number | null;
@@ -19,6 +20,7 @@ export function readPendingOrder(storage: Storage, storeId: string): PendingOrde
   const order = JSON.parse(saved) as PendingOrder;
   if (!order || typeof order.requestId !== "string" || order.storeId !== storeId
       || typeof order.tableNumber !== "string" || typeof order.paymentMethod !== "string"
+      || (order.kitchenNote !== undefined && (typeof order.kitchenNote !== "string" || order.kitchenNote.length > 200))
       || !Array.isArray(order.items) || !order.items.length
       || order.items.some(item => !item || typeof item.menu_id !== "string"
         || !Number.isInteger(item.quantity) || item.quantity <= 0
@@ -52,6 +54,7 @@ export function orderRpcArgs(order: PendingOrder) {
     p_table_number: order.tableNumber,
     p_payment_method: order.paymentMethod,
     p_items: order.items,
+    ...(order.kitchenNote ? { p_kitchen_note: order.kitchenNote } : {}),
     ...(order.customer ? {
       p_customer_type: order.customer.type, p_customer_name: order.customer.name,
       p_member_name: order.customer.member, p_coupon_used: order.couponUsed,

@@ -24,6 +24,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
   const [menus, setMenus] = useState<Menu[]>([]);
   const [optionReplacement, setOptionReplacement] = useState<string | null>(null);
   const [optionMenu, setOptionMenu] = useState<Menu | null>(null);
+  const [kitchenNote, setKitchenNote] = useState("");
   const [cart, setCart] = useState<{ menu: Menu; quantity: number }[]>([]);
   const [tableNumber, setTableNumber] = useState("");
   const [paymentSelection, setPaymentMethod] = useState("현금");
@@ -267,6 +268,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         `${customerTypeLabel(customer.type)} · ${customer.name || "이름 미입력"}${customer.type === "지체 손님" ? ` · 소개: ${customer.member || "미등록"}` : ""}`,
         `테이블: ${tableNumber.trim()} · 결제: ${paymentMethod}`,
         ...cart.map(item => `${item.menu.name}${item.menu.selection_label ? ` · ${item.menu.selection_label}` : ""} × ${item.quantity} · ${(item.menu.price * item.quantity).toLocaleString()}원`),
+        ...(kitchenNote.trim() ? [`주방 요청 사항 · ${kitchenNote.trim()}`] : []),
         `총 결제금액: ${totalPrice.toLocaleString()}원`,
         `쿠폰 사용: ${payment.used.toLocaleString()}원 · 필요 현금: ${payment.due.toLocaleString()}원`,
         `받은 현금: ${payment.received.toLocaleString()}원`,
@@ -294,6 +296,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
         tableNumber: tableNumber.trim(),
         paymentMethod,
         customer: customer!,
+        kitchenNote: kitchenNote.trim(),
         couponUsed: payment!.used,
         cashReceived: paymentMethod === "쿠폰" ? 0 : cashInput === "" ? null : payment!.received,
         items: cart.map(({ menu, quantity }) => ({ menu_id: menu.id, quantity, unit_price: menu.price, ...(menu.menu_type === "set" ? { components: menu.set_components } : {}), ...(menu.selections ? { selections: menu.selections } : {}) })),
@@ -301,7 +304,8 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       // 요청을 보내기 전에 보관해 응답 유실·새로고침 후에도 같은 ID로 재시도한다.
       savePendingOrder(sessionStorage, request);
       setPendingOrder(request);
-      const { data, error } = await supabase.rpc(request.customer ? "submit_customer_order" : "submit_order", orderRpcArgs(request));
+      const rpc = request.kitchenNote ? "submit_order_with_kitchen_note" : request.customer ? "submit_customer_order" : "submit_order";
+      const { data, error } = await supabase.rpc(rpc, orderRpcArgs(request));
       if (error) {
         if (isRejectedOrder(error.code)) {
           clearPendingOrder(sessionStorage, store_id);
@@ -318,6 +322,7 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
       clearPendingOrder(sessionStorage, store_id);
       setPendingOrder(null);
       setCart([]);
+      setKitchenNote("");
       setTableNumber("");
       customerRef.current = null;
       setCustomer(null); setAccount(null); setAccountError(null);
@@ -455,6 +460,12 @@ export default function OrderPage({ params }: { params: Promise<{ store_id: stri
                   />
                 </div>
                 
+                <div className="space-y-2">
+                  <Label htmlFor="kitchen-note">주방 요청 사항 (선택)</Label>
+                  <Input id="kitchen-note" value={kitchenNote} maxLength={200}
+                    onChange={e => setKitchenNote(e.target.value)} placeholder="예: 레몬에이드는 연하게 해주세요" />
+                </div>
+
                 <div className="space-y-2">
                   <Label>결제 방식</Label>
                   <Select value={paymentMethod} onValueChange={(val) => { setPaymentMethod(val || "현금"); setPaymentChosen(true); setCouponInput(""); setCashInput(""); }}>

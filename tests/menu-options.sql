@@ -36,5 +36,25 @@ BEGIN
   EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
   ASSERT (SELECT count(*) FROM public.orders)=before_count;
 END; $$;
+
+DO $$
+<<kitchen_test>>
+DECLARE
+  request_id uuid := gen_random_uuid();
+  store_id uuid := '00000000-0000-0000-0000-000000000002';
+  items jsonb := '[{"menu_id":"00000000-0000-0000-0000-000000002001","quantity":2,"unit_price":5000,"selections":[{"menu_id":"00000000-0000-0000-0000-000000002001","groups":[["아이스"]]}]}]';
+  result jsonb;
+  order_id uuid;
+BEGIN
+  result := public.submit_order_with_kitchen_note(request_id,store_id,'메모','현금',items,'  연하게 해주세요  ','외부자','','',0,NULL);
+  order_id := (result->>'id')::uuid;
+  ASSERT EXISTS (SELECT 1 FROM public.order_items i WHERE i.order_id=kitchen_test.order_id AND i.kitchen_note='연하게 해주세요');
+  ASSERT (SELECT request_payload->'items'=items FROM public.orders WHERE id=order_id);
+  UPDATE public.order_items i SET cooked_quantity=1 WHERE i.order_id=kitchen_test.order_id;
+  ASSERT EXISTS (SELECT 1 FROM public.order_items i WHERE i.order_id=kitchen_test.order_id AND i.kitchen_note='연하게 해주세요');
+  UPDATE public.order_items i SET cooked_quantity=2,status='cooked' WHERE i.order_id=kitchen_test.order_id;
+  ASSERT public.submit_order_with_kitchen_note(request_id,store_id,'메모','현금',items,'연하게 해주세요','외부자','','',0,NULL)=result;
+  ASSERT EXISTS (SELECT 1 FROM public.order_items i WHERE i.order_id=kitchen_test.order_id AND i.kitchen_note IS NULL);
+END; $$;
 RESET ROLE;
 ROLLBACK;
